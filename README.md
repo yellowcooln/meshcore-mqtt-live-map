@@ -17,16 +17,21 @@ Live MeshCore traffic map that renders nodes, routes, and activity in real time 
 - `data/`: runtime state (created at first run)
 
 ## Quick Start
-1) Copy env template:
+1) Clone the repo and enter it:
+```bash
+git clone https://github.com/yellowcooln/meshcore-mqtt-live-map
+cd meshcore-mqtt-live-map
+```
+2) Copy env template:
 ```bash
 cp .env.example .env
 ```
-2) Edit `.env` with your MQTT broker and site metadata.
-3) Build and run:
+3) Edit `.env` with your MQTT broker and site metadata.
+4) Build and run:
 ```bash
 docker compose up -d --build
 ```
-4) Open: `http://localhost:8080/` (or your `WEB_PORT`)
+5) Open: `http://localhost:8080/` (or your `WEB_PORT`)
 
 ## Configuration (.env)
 Required MQTT settings:
