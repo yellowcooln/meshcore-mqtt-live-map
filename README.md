@@ -77,4 +77,4 @@ Runtime tuning:
 
 ---
 
-This project was entirely vibe coded with Codex.
+This project was entirely vibe coded with Codex so always expect issues and bugs.
