@@ -2,6 +2,8 @@
 
 Live MeshCore traffic map that renders nodes, routes, and activity in real time on a Leaflet map. The backend subscribes to MQTT over WebSockets + TLS, decodes MeshCore packets with `@michaelhart/meshcore-decoder`, and streams updates to the browser via WebSockets.
 
+Live example: https://live.bostonme.sh/
+
 ## Features
 - Live node markers with roles (Repeater, Companion, Room Server, Unknown)
 - Animated route/trace lines and message fanout
