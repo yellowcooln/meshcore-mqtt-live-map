@@ -77,6 +77,43 @@
       background: rgba(34,197,94,.35);
       border-color: rgba(34,197,94,.6);
     }
+    .prop-panel {
+      margin-top: 6px;
+      padding: 8px;
+      border-radius: 10px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.18);
+      display: none;
+      gap: 6px;
+    }
+    .prop-panel.active { display: grid; }
+    .prop-field {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+    }
+    .prop-panel input,
+    .prop-panel select {
+      background: rgba(0,0,0,.35);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 6px;
+      padding: 2px 6px;
+      font-size: 12px;
+    }
+    .prop-panel input[type="range"] {
+      padding: 0;
+      accent-color: #22c55e;
+      width: 120px;
+    }
+    .prop-panel input[type="number"] {
+      width: 70px;
+    }
+    .prop-panel select {
+      width: 150px;
+    }
     .leaflet-popup-content { max-width: 260px; overflow-wrap: anywhere; word-break: break-word; }
     .popup-title { display: block; font-weight: 600; }
     .popup-id { display: block; opacity: 0.85; }
@@ -112,6 +149,31 @@
     <button class="map-toggle" id="map-toggle" type="button">Dark map</button>
     <button class="map-toggle" id="topo-toggle" type="button">Topo map</button>
     <button class="map-toggle" id="los-toggle" type="button">LOS tool</button>
+    <button class="map-toggle" id="prop-toggle" type="button">Propagation</button>
+    <div class="prop-panel" id="prop-panel">
+      <div class="small"><strong>Propagation estimate</strong></div>
+      <div class="small">LoRa 910.525 MHz • BW 62.5 kHz • SF7 • CR8</div>
+      <div class="small">Assumes 6 dB noise figure and 10 dB fade margin.</div>
+      <label class="prop-field">
+        <span>Tx power (dBm)</span>
+        <input id="prop-txpower" type="number" min="2" max="30" step="1" value="22" />
+      </label>
+      <label class="prop-field">
+        <span>Opacity</span>
+        <input id="prop-opacity" type="range" min="0.05" max="0.6" step="0.05" value="0.2" />
+      </label>
+      <label class="prop-field">
+        <span>Model</span>
+        <select id="prop-model">
+          <option value="suburban" selected>Suburban</option>
+          <option value="urban">Urban</option>
+          <option value="indoor">Indoor/obstructed</option>
+          <option value="free">Best-case (free-space)</option>
+        </select>
+      </label>
+      <div class="small" id="prop-range"></div>
+      <div class="small" id="prop-status"></div>
+    </div>
     <div class="legend">
       <div class="legend-item"><span class="legend-line legend-trace"></span> Trace/path</div>
       <div class="legend-item"><span class="legend-line legend-message"></span> Message</div>
@@ -158,6 +220,7 @@
     const markers = new Map();   // device_id -> Leaflet marker
     const polylines = new Map(); // device_id -> Leaflet polyline
     const routeLines = new Map(); // route_id -> { line, timeout }
+    const deviceMeta = new Map(); // device_id -> { lat, lon, name }
     const routeLayer = L.layerGroup().addTo(map);
     const heatLayer = L.heatLayer([], {
       radius: 28,
@@ -173,6 +236,29 @@
     let losPoints = [];
     let losLine = null;
     let losSuggestion = null;
+
+    const propagationLayer = L.layerGroup().addTo(map);
+    let propagationActive = false;
+    let propagationOrigin = null;
+    let propagationCircle = null;
+    let propagationOriginMarker = null;
+
+    const PROP_DEFAULTS = {
+      freqMHz: 910.525,
+      bwHz: 62500,
+      sf: 7,
+      cr: 8,
+      snrMinDb: -7.5,
+      noiseFigureDb: 6,
+      fadeMarginDb: 10
+    };
+
+    const PROP_MODELS = {
+      free: { label: 'Best-case (free-space)', n: 2.0 },
+      suburban: { label: 'Suburban', n: 2.7 },
+      urban: { label: 'Urban', n: 3.2 },
+      indoor: { label: 'Indoor/obstructed', n: 4.0 }
+    };
 
     function resolveRole(d) {
       const role = (d.role || '').toLowerCase();
@@ -206,6 +292,20 @@
       }
     }
 
+    function setPropStatus(text) {
+      const el = document.getElementById('prop-status');
+      if (el) {
+        el.textContent = text || '';
+      }
+    }
+
+    function setPropRange(text) {
+      const el = document.getElementById('prop-range');
+      if (el) {
+        el.textContent = text || '';
+      }
+    }
+
     function clearLos() {
       losPoints = [];
       losLine = null;
@@ -226,6 +326,175 @@
       } else {
         setLosStatus('LOS: select first point (Shift+click nodes too)');
       }
+    }
+
+    function clearPropagation() {
+      propagationOrigin = null;
+      if (propagationCircle) {
+        propagationLayer.removeLayer(propagationCircle);
+        propagationCircle = null;
+      }
+      if (propagationOriginMarker) {
+        propagationLayer.removeLayer(propagationOriginMarker);
+        propagationOriginMarker = null;
+      }
+      setPropRange('');
+      setPropStatus('');
+    }
+
+    function setPropActive(active) {
+      propagationActive = active;
+      const btn = document.getElementById('prop-toggle');
+      const panel = document.getElementById('prop-panel');
+      if (btn) {
+        btn.classList.toggle('active', active);
+        btn.textContent = active ? 'Propagation: select node' : 'Propagation';
+      }
+      if (panel) {
+        panel.classList.toggle('active', active);
+      }
+      if (!active) {
+        clearPropagation();
+      } else {
+        setPropStatus('Select a node or click the map to set a transmitter.');
+      }
+    }
+
+    function calcReceiverSensitivityDbm(bwHz, noiseFigureDb, snrMinDb) {
+      return -174 + (10 * Math.log10(bwHz)) + noiseFigureDb + snrMinDb;
+    }
+
+    function calcFsplAt1mDb(freqMHz) {
+      return 32.44 + (20 * Math.log10(freqMHz)) - 60;
+    }
+
+    function calcMaxPathLossDb(txPowerDbm, sensitivityDbm, fadeMarginDb) {
+      return txPowerDbm - sensitivityDbm - fadeMarginDb;
+    }
+
+    function calcRangeMeters(maxPathLossDb, freqMHz, pathLossExponent) {
+      const n = Math.max(1.1, pathLossExponent);
+      const fspl1m = calcFsplAt1mDb(freqMHz);
+      const exponent = (maxPathLossDb - fspl1m) / (10 * n);
+      return Math.max(1, Math.pow(10, exponent));
+    }
+
+    function formatDistance(meters) {
+      if (!Number.isFinite(meters)) return 'unknown';
+      if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
+      return `${Math.round(meters)} m`;
+    }
+
+    function haversineMeters(lat1, lon1, lat2, lon2) {
+      const toRad = (deg) => deg * (Math.PI / 180);
+      const r = 6371000;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) ** 2
+        + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return r * c;
+    }
+
+    function getPropagationConfig() {
+      const txInput = document.getElementById('prop-txpower');
+      const opacityInput = document.getElementById('prop-opacity');
+      const modelSelect = document.getElementById('prop-model');
+      if (!txInput || !opacityInput || !modelSelect) return null;
+      const txPower = Number(txInput.value);
+      const opacity = Number(opacityInput.value);
+      const model = PROP_MODELS[modelSelect.value] || PROP_MODELS.suburban;
+      if (!Number.isFinite(txPower) || !Number.isFinite(opacity)) return null;
+      return {
+        txPower,
+        opacity: Math.min(0.9, Math.max(0.05, opacity)),
+        model
+      };
+    }
+
+    function listLikelyNodes(origin, rangeMeters) {
+      const matches = [];
+      deviceMeta.forEach((meta, id) => {
+        if (!meta || meta.lat == null || meta.lon == null) return;
+        if (origin.id && origin.id === id) return;
+        const dist = haversineMeters(origin.lat, origin.lon, meta.lat, meta.lon);
+        if (dist <= rangeMeters) {
+          const label = meta.name ? meta.name : `${id.slice(0, 8)}...`;
+          matches.push({ id, label, dist });
+        }
+      });
+      matches.sort((a, b) => a.dist - b.dist);
+      return matches;
+    }
+
+    function renderPropagation(origin) {
+      if (!origin) return;
+      const config = getPropagationConfig();
+      if (!config) return;
+
+      const sensitivity = calcReceiverSensitivityDbm(
+        PROP_DEFAULTS.bwHz,
+        PROP_DEFAULTS.noiseFigureDb,
+        PROP_DEFAULTS.snrMinDb
+      );
+      const maxPathLoss = calcMaxPathLossDb(config.txPower, sensitivity, PROP_DEFAULTS.fadeMarginDb);
+      const rangeMeters = calcRangeMeters(maxPathLoss, PROP_DEFAULTS.freqMHz, config.model.n);
+
+      if (!propagationCircle) {
+        propagationCircle = L.circle([origin.lat, origin.lon], {
+          radius: rangeMeters,
+          color: '#22c55e',
+          fillColor: '#22c55e',
+          fillOpacity: config.opacity,
+          opacity: Math.min(1, config.opacity + 0.25),
+          weight: 2
+        }).addTo(propagationLayer);
+      } else {
+        propagationCircle.setLatLng([origin.lat, origin.lon]);
+        propagationCircle.setRadius(rangeMeters);
+        propagationCircle.setStyle({
+          fillOpacity: config.opacity,
+          opacity: Math.min(1, config.opacity + 0.25)
+        });
+      }
+
+      if (!propagationOriginMarker) {
+        propagationOriginMarker = L.circleMarker([origin.lat, origin.lon], {
+          radius: 5,
+          color: '#22c55e',
+          fillColor: '#22c55e',
+          fillOpacity: 0.95,
+          weight: 2
+        }).addTo(propagationLayer);
+      } else {
+        propagationOriginMarker.setLatLng([origin.lat, origin.lon]);
+      }
+
+      const rangeLabel = formatDistance(rangeMeters);
+      const modelLabel = config.model.label;
+      setPropRange(`Range: ${rangeLabel} (${modelLabel})`);
+
+      const likely = listLikelyNodes(origin, rangeMeters);
+      const count = likely.length;
+      let status = `Likely to hit ${count} node${count === 1 ? '' : 's'}`;
+      if (count > 0) {
+        const names = likely.slice(0, 5).map(item => item.label).join(', ');
+        status += `: ${names}`;
+        if (count > 5) status += ` +${count - 5} more`;
+      }
+      setPropStatus(status);
+    }
+
+    function setPropagationOrigin(latlng, id = null) {
+      if (!latlng) return;
+      const meta = id ? deviceMeta.get(id) : null;
+      propagationOrigin = {
+        lat: latlng.lat,
+        lon: latlng.lng,
+        id: id,
+        name: meta ? meta.name : null
+      };
+      renderPropagation(propagationOrigin);
     }
 
     function formatLastContact(tsSeconds) {
@@ -267,6 +536,7 @@
       const latlng = [d.lat, d.lon];
       const role = resolveRole(d);
       const style = markerStyleForRole(role);
+      deviceMeta.set(id, { lat: d.lat, lon: d.lon, name: d.name });
 
       // marker
       if (!markers.has(id)) {
@@ -288,6 +558,16 @@
             m.closePopup();
             original.preventDefault();
             original.stopPropagation();
+            L.DomEvent.stop(ev);
+            return;
+          }
+          if (propagationActive) {
+            setPropagationOrigin(m.getLatLng(), id);
+            m.openPopup();
+            if (original) {
+              original.preventDefault();
+              original.stopPropagation();
+            }
             L.DomEvent.stop(ev);
           }
         });
@@ -323,6 +603,14 @@
       }
 
       setStats();
+      if (propagationActive && propagationOrigin) {
+        if (propagationOrigin.id === id) {
+          propagationOrigin.lat = d.lat;
+          propagationOrigin.lon = d.lon;
+          propagationOrigin.name = d.name || propagationOrigin.name;
+        }
+        renderPropagation(propagationOrigin);
+      }
     }
 
     function removeDevices(ids) {
@@ -335,8 +623,17 @@
           map.removeLayer(polylines.get(id));
           polylines.delete(id);
         }
+        deviceMeta.delete(id);
       });
       setStats();
+      if (propagationActive && propagationOrigin) {
+        if (ids.includes(propagationOrigin.id)) {
+          clearPropagation();
+          setPropStatus('Select a node or click the map to set a transmitter.');
+        } else {
+          renderPropagation(propagationOrigin);
+        }
+      }
     }
 
     function removeRoutes(ids) {
@@ -655,9 +952,55 @@
       });
     }
 
+    const propToggle = document.getElementById('prop-toggle');
+    const propTxInput = document.getElementById('prop-txpower');
+    const propOpacityInput = document.getElementById('prop-opacity');
+    const propModelSelect = document.getElementById('prop-model');
+
+    if (propTxInput) {
+      const storedTx = localStorage.getItem('meshmapPropTxPower');
+      if (storedTx !== null) propTxInput.value = storedTx;
+      propTxInput.addEventListener('input', () => {
+        localStorage.setItem('meshmapPropTxPower', propTxInput.value);
+        if (propagationActive && propagationOrigin) renderPropagation(propagationOrigin);
+      });
+    }
+
+    if (propOpacityInput) {
+      const storedOpacity = localStorage.getItem('meshmapPropOpacity');
+      if (storedOpacity !== null) propOpacityInput.value = storedOpacity;
+      propOpacityInput.addEventListener('input', () => {
+        localStorage.setItem('meshmapPropOpacity', propOpacityInput.value);
+        if (propagationActive && propagationOrigin) renderPropagation(propagationOrigin);
+      });
+    }
+
+    if (propModelSelect) {
+      const storedModel = localStorage.getItem('meshmapPropModel');
+      if (storedModel && PROP_MODELS[storedModel]) {
+        propModelSelect.value = storedModel;
+      }
+      propModelSelect.addEventListener('change', () => {
+        localStorage.setItem('meshmapPropModel', propModelSelect.value);
+        if (propagationActive && propagationOrigin) renderPropagation(propagationOrigin);
+      });
+    }
+
+    if (propToggle) {
+      propToggle.addEventListener('click', () => {
+        setPropActive(!propagationActive);
+        if (propagationActive && propagationOrigin) renderPropagation(propagationOrigin);
+      });
+    }
+
     map.on('click', (ev) => {
-      if (!losActive) return;
-      handleLosPoint(ev.latlng);
+      if (losActive) {
+        handleLosPoint(ev.latlng);
+        return;
+      }
+      if (propagationActive) {
+        setPropagationOrigin(ev.latlng);
+      }
     });
   </script>
 </body>
