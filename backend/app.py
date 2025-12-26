@@ -45,6 +45,9 @@ MESSAGE_ORIGIN_TTL_SECONDS = int(os.getenv("MESSAGE_ORIGIN_TTL_SECONDS", "300"))
 HEAT_TTL_SECONDS = int(os.getenv("HEAT_TTL_SECONDS", "600"))
 MQTT_ONLINE_SECONDS = int(os.getenv("MQTT_ONLINE_SECONDS", "300"))
 MQTT_SEEN_BROADCAST_MIN_SECONDS = float(os.getenv("MQTT_SEEN_BROADCAST_MIN_SECONDS", "5"))
+MQTT_ONLINE_TOPIC_SUFFIXES = tuple(
+  s.strip() for s in os.getenv("MQTT_ONLINE_TOPIC_SUFFIXES", "/status,/internal").split(",") if s.strip()
+)
 
 DEBUG_PAYLOAD = os.getenv("DEBUG_PAYLOAD", "false").lower() == "true"
 DEBUG_PAYLOAD_MAX = int(os.getenv("DEBUG_PAYLOAD_MAX", "400"))
@@ -421,8 +424,6 @@ def _route_points_from_device_ids(origin_id: Optional[str], receiver_id: Optiona
 
 def _append_heat_points(points: List[List[float]], ts: float, payload_type: Optional[int]) -> None:
   if HEAT_TTL_SECONDS <= 0:
-    return
-  if payload_type == 4:
     return
   for point in points:
     heat_events.append({
@@ -893,6 +894,12 @@ def _has_location_hints(obj: Any) -> bool:
       if _has_location_hints(v):
         return True
   return False
+
+
+def _topic_marks_online(topic: str) -> bool:
+  if not MQTT_ONLINE_TOPIC_SUFFIXES:
+    return False
+  return any(topic.endswith(suffix) for suffix in MQTT_ONLINE_TOPIC_SUFFIXES)
 
 
 def _direct_coords_allowed(topic: str, obj: Any) -> bool:
@@ -1404,7 +1411,7 @@ def mqtt_on_message(client, userdata, msg: mqtt.MQTTMessage):
   topic_counts[msg.topic] = topic_counts.get(msg.topic, 0) + 1
 
   dev_guess = _device_id_from_topic(msg.topic)
-  if dev_guess:
+  if dev_guess and _topic_marks_online(msg.topic):
     now = time.time()
     seen_devices[dev_guess] = now
     if dev_guess in devices:

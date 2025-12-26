@@ -2370,7 +2370,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     function addHeatPoints(points, tsSeconds, payloadType) {
       if (!Array.isArray(points) || points.length < 1) return;
-      if (Number(payloadType) === 4) return; // skip adverts for route-based heat
       const ts = (tsSeconds ? tsSeconds * 1000 : Date.now());
       points.forEach(p => {
         heatPoints.push({ lat: p[0], lon: p[1], ts, weight: 0.7 });

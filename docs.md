@@ -34,6 +34,7 @@ This project renders live MeshCore traffic on a Leaflet + OpenStreetMap map. A F
 - Node search (name or key) and a labels toggle (persisted to localStorage).
 - Hide Nodes toggle hides markers and trails; routes remain visible.
 - Propagation overlay keeps heat/routes/trails/markers above it after render.
+- Heatmap includes all route payload types (adverts are no longer skipped).
 - MQTT online status shows as a green marker outline and popup status; legend includes the online window.
 
 ## LOS (Line of Sight) Tool
