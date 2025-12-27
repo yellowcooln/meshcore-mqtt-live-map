@@ -4,6 +4,8 @@ Live MeshCore traffic map that renders nodes, routes, and activity in real time 
 
 Live example: https://live.bostonme.sh/
 
+![Live map preview](example.gif)
+
 ## Features
 - Live node markers with roles (Repeater, Companion, Room Server, Unknown)
 - MQTT online indicator (green outline + popup status)
