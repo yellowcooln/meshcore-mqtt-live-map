@@ -47,6 +47,7 @@ DEVICE_TTL_SECONDS = int(os.getenv("DEVICE_TTL_SECONDS", "300"))
 TRAIL_LEN = int(os.getenv("TRAIL_LEN", "30"))
 ROUTE_TTL_SECONDS = int(os.getenv("ROUTE_TTL_SECONDS", "120"))
 ROUTE_PAYLOAD_TYPES = os.getenv("ROUTE_PAYLOAD_TYPES", "8,9,2,5,4")
+ROUTE_PATH_MAX_LEN = int(os.getenv("ROUTE_PATH_MAX_LEN", "16"))
 ROUTE_HISTORY_ENABLED = os.getenv("ROUTE_HISTORY_ENABLED", "true").lower() == "true"
 ROUTE_HISTORY_HOURS = float(os.getenv("ROUTE_HISTORY_HOURS", "24"))
 ROUTE_HISTORY_MAX_SEGMENTS = int(os.getenv("ROUTE_HISTORY_MAX_SEGMENTS", "40000"))
@@ -451,6 +452,8 @@ def _route_points_from_hashes(path_hashes: List[Any], origin_id: Optional[str], 
     key = _normalize_node_hash(raw)
     if key:
       normalized.append(key)
+  if ROUTE_PATH_MAX_LEN > 0 and len(normalized) > ROUTE_PATH_MAX_LEN:
+    return None, []
 
   receiver_hash = _node_hash_from_device_id(receiver_id) if receiver_id else None
   origin_hash = _node_hash_from_device_id(origin_id) if origin_id else None
