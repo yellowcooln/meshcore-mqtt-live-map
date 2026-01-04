@@ -8,6 +8,7 @@ Live example sites:
 
 
 ![Live map preview](example.gif)
+---
 ![Live map preview](backend/example2.gif)
 
 ## Features
