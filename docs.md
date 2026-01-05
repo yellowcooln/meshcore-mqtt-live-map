@@ -44,6 +44,7 @@ This project renders live MeshCore traffic on a Leaflet + OpenStreetMap map. A F
 - Default base layer can be set with `MAP_DEFAULT_LAYER` (localStorage overrides).
 - Units toggle (km/mi) is site-wide; default from `DISTANCE_UNITS` and stored in localStorage.
 - Node size slider defaults from `NODE_MARKER_RADIUS` and persists in localStorage.
+- History link size slider defaults from `HISTORY_LINK_SCALE` and persists in localStorage.
 - Node search (name or key) and a labels toggle (persisted to localStorage).
 - History tool defaults off and opens a right-side panel with a heat filter slider (visibility is not persisted).
 - History slider modes: 0 = All, 1 = Blue only, 2 = Yellow only, 3 = Yellow + Red, 4 = Red only.
@@ -92,6 +93,7 @@ When a hop hash collides, the backend skips it (unique-only); oversized path lis
 - Every route segment is persisted to `data/route_history.jsonl` and kept for the last `ROUTE_HISTORY_HOURS`.
 - History lines are color‑coded by volume (blue = low, orange = mid, red = high) and weight scales with counts.
 - History is hidden by default; the History tool opens a right panel with a slider to filter by heat band.
+- The History tool also includes a link size slider; it scales line weight without changing counts.
 - History records `path`, `direct`, and `fanout` route modes by default (configure `ROUTE_HISTORY_ALLOWED_MODES`).
 
 If routes aren’t visible:

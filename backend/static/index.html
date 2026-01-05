@@ -44,6 +44,7 @@
   data-mqtt-online-seconds="{{MQTT_ONLINE_SECONDS}}"
   data-distance-units="{{DISTANCE_UNITS}}"
   data-node-radius="{{NODE_MARKER_RADIUS}}"
+  data-history-link-scale="{{HISTORY_LINK_SCALE}}"
 >
   <script>
     window.__meshmapStarted = false;
@@ -135,6 +136,11 @@
       <input id="history-filter" type="range" min="0" max="4" step="1" value="0" />
     </label>
     <div class="small" id="history-filter-label">All links</div>
+    <label class="history-field">
+      <span>Link size</span>
+      <input id="history-link-size" type="range" min="0" max="100" step="1" value="50" />
+    </label>
+    <div class="small" id="history-link-size-value">1.0x</div>
   </div>
   <div class="prop-panel" id="prop-panel">
     <div class="small"><strong>Propagation estimate</strong></div>
@@ -233,6 +239,6 @@
   ></script>
   <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js" crossorigin="anonymous"></script>
 
-  <script src="/static/app.js?v=nodesize1" defer></script>
+  <script src="/static/app.js?v=linksize2" defer></script>
 </body>
 </html>

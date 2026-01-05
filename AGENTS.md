@@ -41,6 +41,7 @@
 - Most behavior is controlled by `.env` (MQTT host, TLS, topics, TTLs, map start lat/lon/zoom, MQTT online window, default map layer).
 - Current dev defaults: `DEVICE_TTL_SECONDS=259200`, `MQTT_ONLINE_SECONDS=600`, `ROUTE_TTL_SECONDS=60`, `TRAIL_LEN=0`, `DISTANCE_UNITS=km`.
 - Node size default is `NODE_MARKER_RADIUS` (pixels); users can override via the HUD slider.
+- History link size default is `HISTORY_LINK_SCALE`; users can override via the History panel slider.
 - Map radius filter: `MAP_RADIUS_KM=241.4` (150mi). Set `0` to disable; applies to nodes, trails, routes, and history edges.
 - `MAP_RADIUS_SHOW=true` draws a debug circle centered on `MAP_START_LAT/LON`.
 - Set `TRAIL_LEN=0` to disable trails entirely; the HUD trail hint is removed when trails are off.

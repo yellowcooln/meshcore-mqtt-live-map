@@ -195,6 +195,8 @@
     const historyLabel = document.getElementById('history-window-label');
     const historyFilter = document.getElementById('history-filter');
     const historyFilterLabel = document.getElementById('history-filter-label');
+    const historyLinkSizeInput = document.getElementById('history-link-size');
+    const historyLinkSizeValue = document.getElementById('history-link-size-value');
     let historyWindowSeconds = null;
     const historyToolVersion = '1';
     localStorage.setItem('meshmapHistoryToolVersion', historyToolVersion);
@@ -211,6 +213,40 @@
     if (historyFilter) {
       historyFilter.value = String(historyFilterMode);
     }
+    const HISTORY_LINK_MIN = 0.1;
+    const HISTORY_LINK_MID = 1;
+    const HISTORY_LINK_MAX = 2;
+    const envHistoryLinkScale = Number(config.historyLinkScale);
+    let historyLinkScale = Number.isFinite(envHistoryLinkScale) ? envHistoryLinkScale : 1;
+    const storedHistoryLinkScale = parseNumberParam(localStorage.getItem('meshmapHistoryLinkScale'));
+    if (Number.isFinite(storedHistoryLinkScale)) {
+      historyLinkScale = storedHistoryLinkScale;
+    }
+    historyLinkScale = clampNumber(historyLinkScale, HISTORY_LINK_MIN, HISTORY_LINK_MAX);
+    if (!Number.isFinite(storedHistoryLinkScale)) {
+      localStorage.setItem('meshmapHistoryLinkScale', String(historyLinkScale));
+    }
+    const sliderToHistoryScale = (value) => {
+      const t = clampNumber(Number(value), 0, 100);
+      if (t <= 50) {
+        return HISTORY_LINK_MIN + (t / 50) * (HISTORY_LINK_MID - HISTORY_LINK_MIN);
+      }
+      return HISTORY_LINK_MID + ((t - 50) / 50) * (HISTORY_LINK_MAX - HISTORY_LINK_MID);
+    };
+    const historyScaleToSlider = (scale) => {
+      const v = clampNumber(scale, HISTORY_LINK_MIN, HISTORY_LINK_MAX);
+      if (v <= HISTORY_LINK_MID) {
+        return ((v - HISTORY_LINK_MIN) / (HISTORY_LINK_MID - HISTORY_LINK_MIN)) * 50;
+      }
+      return 50 + ((v - HISTORY_LINK_MID) / (HISTORY_LINK_MAX - HISTORY_LINK_MID)) * 50;
+    };
+    const updateHistoryLinkSizeUI = () => {
+      if (historyLinkSizeInput) {
+        historyLinkSizeInput.value = String(Math.round(historyScaleToSlider(historyLinkScale)));
+      }
+      if (historyLinkSizeValue) historyLinkSizeValue.textContent = `${historyLinkScale.toFixed(1)}x`;
+    };
+    updateHistoryLinkSizeUI();
     const storedHeat = localStorage.getItem('meshmapShowHeat');
     let heatVisible = storedHeat !== 'false';
     if (storedHeat === null) {
@@ -2580,7 +2616,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     function historyWeight(count) {
       const n = Math.max(1, Number(count) || 1);
-      return Math.min(6, 0.9 + Math.log1p(n) * 1.1);
+      const base = Math.min(6, 0.9 + Math.log1p(n) * 1.1);
+      return clampNumber(base * historyLinkScale, 0.4, 12);
     }
 
     function computeHistoryThresholds() {
@@ -2680,6 +2717,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       }
       localStorage.setItem('meshmapHistoryFilter', String(historyFilterMode));
       updateHistoryFilterLabel();
+      if (historyVisible && nodesVisible) {
+        updateHistoryRendering();
+      }
+    }
+
+    function updateHistoryLinkScale(next) {
+      const value = Number(next);
+      if (!Number.isFinite(value)) return;
+      historyLinkScale = clampNumber(sliderToHistoryScale(value), HISTORY_LINK_MIN, HISTORY_LINK_MAX);
+      localStorage.setItem('meshmapHistoryLinkScale', String(historyLinkScale));
+      updateHistoryLinkSizeUI();
       if (historyVisible && nodesVisible) {
         updateHistoryRendering();
       }
@@ -3279,6 +3327,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (historyFilter) {
       historyFilter.addEventListener('input', (ev) => {
         updateHistoryFilter(ev.target.value);
+      });
+    }
+    if (historyLinkSizeInput) {
+      historyLinkSizeInput.addEventListener('input', (ev) => {
+        updateHistoryLinkScale(ev.target.value);
       });
     }
 

@@ -17,7 +17,7 @@ Live example sites:
 - Animated route/trace lines and message fanout
 - Heat map for the last 10 minutes of message activity (includes adverts)
 - Persistent device state and optional trails (disable with `TRAIL_LEN=0`)
-- 24-hour route history tool with volume-based coloring, click-to-view packet details, and a heat-band slider (All, Blue, Yellow, Yellow+Red, Red)
+- 24-hour route history tool with volume-based coloring, click-to-view packet details, a heat-band slider, and a link-size slider
 - UI controls: legend toggle, dark map, topo map, units toggle (km/mi), labels toggle, hide nodes, heat toggle
 - Share button that copies a URL with current view + settings
 - URL parameters to open the map at a specific view (center, zoom, toggles)
@@ -108,6 +108,7 @@ History overlay:
 - `ROUTE_HISTORY_COMPACT_INTERVAL`
 - `ROUTE_HISTORY_FILE`
 - `ROUTE_HISTORY_PAYLOAD_TYPES`
+- `HISTORY_LINK_SCALE` (default history line weight multiplier)
 
 Heat + online status:
 - `HEAT_TTL_SECONDS`

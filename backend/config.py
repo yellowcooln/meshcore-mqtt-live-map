@@ -75,6 +75,12 @@ except ValueError:
 if NODE_MARKER_RADIUS <= 0:
   NODE_MARKER_RADIUS = 8.0
 try:
+  HISTORY_LINK_SCALE = float(os.getenv("HISTORY_LINK_SCALE", "1"))
+except ValueError:
+  HISTORY_LINK_SCALE = 1.0
+if HISTORY_LINK_SCALE <= 0:
+  HISTORY_LINK_SCALE = 1.0
+try:
   MAP_START_LAT = float(os.getenv("MAP_START_LAT", "42.3601"))
 except ValueError:
   MAP_START_LAT = 42.3601
