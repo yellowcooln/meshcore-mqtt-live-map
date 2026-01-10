@@ -45,6 +45,10 @@ MQTT_SEEN_BROADCAST_MIN_SECONDS = float(os.getenv("MQTT_SEEN_BROADCAST_MIN_SECON
 MQTT_ONLINE_TOPIC_SUFFIXES = tuple(
   s.strip() for s in os.getenv("MQTT_ONLINE_TOPIC_SUFFIXES", "/status,/internal").split(",") if s.strip()
 )
+MQTT_ONLINE_FORCE_NAMES = tuple(
+  s.strip() for s in os.getenv("MQTT_ONLINE_FORCE_NAMES", "").split(",") if s.strip()
+)
+MQTT_ONLINE_FORCE_NAMES_SET = {s.lower() for s in MQTT_ONLINE_FORCE_NAMES}
 
 DEBUG_PAYLOAD = os.getenv("DEBUG_PAYLOAD", "false").lower() == "true"
 DEBUG_PAYLOAD_MAX = int(os.getenv("DEBUG_PAYLOAD_MAX", "400"))
