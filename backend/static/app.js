@@ -139,6 +139,9 @@
     const heatPoints = [];
     const HEAT_TTL_MS = 10 * 60 * 1000;
     const losLayer = L.layerGroup().addTo(map);
+    const coverageLayer = L.layerGroup();
+    let coverageVisible = false;
+    let coverageData = null;
     let losActive = false;
     let losPoints = [];
     let losLine = null;
@@ -346,6 +349,222 @@
       return `${minutes} min`;
     }
 
+    // Geohash decoder (simple implementation)
+    function geohashDecode(geohash) {
+      const BASE32 = '0123456789bcdefghjkmnpqrstuvwxyz';
+      const BASE32_DICT = {};
+      for (let i = 0; i < BASE32.length; i++) {
+        BASE32_DICT[BASE32[i]] = i;
+      }
+      let even = true;
+      let lat = [-90.0, 90.0];
+      let lon = [-180.0, 180.0];
+      let lat_err = 90.0;
+      let lon_err = 180.0;
+      for (let i = 0; i < geohash.length; i++) {
+        const c = geohash[i];
+        const cd = BASE32_DICT[c];
+        for (let j = 0; j < 5; j++) {
+          if (even) {
+            lon_err /= 2;
+            if ((cd & (16 >> j)) > 0) {
+              lon[0] = (lon[0] + lon[1]) / 2;
+            } else {
+              lon[1] = (lon[0] + lon[1]) / 2;
+            }
+          } else {
+            lat_err /= 2;
+            if ((cd & (16 >> j)) > 0) {
+              lat[0] = (lat[0] + lat[1]) / 2;
+            } else {
+              lat[1] = (lat[0] + lat[1]) / 2;
+            }
+          }
+          even = !even;
+        }
+      }
+      return {
+        latitude: (lat[0] + lat[1]) / 2,
+        longitude: (lon[0] + lon[1]) / 2,
+        error: { latitude: lat_err, longitude: lon_err }
+      };
+    }
+
+    function geohashDecodeBbox(geohash) {
+      const decoded = geohashDecode(geohash);
+      const latErr = decoded.error.latitude;
+      const lonErr = decoded.error.longitude;
+      return [
+        decoded.latitude - latErr,
+        decoded.longitude - lonErr,
+        decoded.latitude + latErr,
+        decoded.longitude + lonErr
+      ];
+    }
+
+    function successRateToColor(rate) {
+      const clampedRate = Math.max(0, Math.min(1, rate));
+      let red, green, blue;
+      if (clampedRate >= 0.8) {
+        const t = (clampedRate - 0.8) / 0.2;
+        red = Math.round(0 + (50 - 0) * t);
+        green = Math.round(100 + (150 - 100) * t);
+        blue = Math.round(0 + (50 - 0) * t);
+      } else if (clampedRate >= 0.6) {
+        const t = (clampedRate - 0.6) / 0.2;
+        red = Math.round(50 + (255 - 50) * t);
+        green = Math.round(150 + (165 - 150) * t);
+        blue = Math.round(50 - 50 * t);
+      } else if (clampedRate >= 0.4) {
+        const t = (clampedRate - 0.4) / 0.2;
+        red = 255;
+        green = Math.round(165 + (100 - 165) * t);
+        blue = 0;
+      } else if (clampedRate >= 0.2) {
+        const t = (clampedRate - 0.2) / 0.2;
+        red = 255;
+        green = Math.round(100 - 100 * t);
+        blue = 0;
+      } else {
+        red = 255;
+        green = 0;
+        blue = 0;
+      }
+      const toHex = (n) => {
+        const hex = n.toString(16);
+        return hex.length === 1 ? '0' + hex : hex;
+      };
+      return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+    }
+
+    async function fetchCoverageData() {
+      try {
+        const response = await fetch(withToken('/coverage'));
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Unknown error');
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+        const data = await response.json();
+        return data;
+      } catch (err) {
+        const errorMsg = err && err.message ? err.message : String(err);
+        reportError(`Failed to fetch coverage data: ${errorMsg}`);
+        return null;
+      }
+    }
+
+    function renderCoverage(data) {
+      coverageLayer.clearLayers();
+      if (!data || !Array.isArray(data)) {
+        return;
+      }
+      // Aggregate samples by 6-char geohash prefix (coverage tile level)
+      const tileMap = new Map(); // 6-char prefix -> { heard: count, lost: count, samples: [...] }
+      for (const sample of data) {
+        const hash = sample.hash || sample.name || sample.id;
+        if (!hash) continue;
+        const tileHash = hash.substring(0, 6); // Use 6-char prefix for coverage tiles
+        if (!tileMap.has(tileHash)) {
+          tileMap.set(tileHash, { heard: 0, lost: 0, samples: [], latestTime: 0, snr: null, rssi: null, paths: new Set() });
+        }
+        const tile = tileMap.get(tileHash);
+        const observed = sample.observed !== undefined ? sample.observed : (sample.metadata?.observed !== undefined ? sample.metadata.observed : ((sample.path || sample.metadata?.path || []).length > 0));
+        if (observed) {
+          tile.heard++;
+        } else {
+          tile.lost++;
+        }
+        tile.samples.push(sample);
+        const time = sample.time || sample.metadata?.time || 0;
+        // Convert to number if it's a string, and handle milliseconds vs seconds
+        let timeValue = typeof time === 'string' ? parseInt(time, 10) : (typeof time === 'number' ? time : 0);
+        // If time looks like seconds (less than year 2000 in milliseconds), convert to milliseconds
+        if (timeValue > 0 && timeValue < 946684800000) {
+          timeValue = timeValue * 1000;
+        }
+        if (timeValue > tile.latestTime) {
+          tile.latestTime = timeValue;
+          tile.snr = sample.snr !== null && sample.snr !== undefined ? sample.snr : (sample.metadata?.snr !== null && sample.metadata?.snr !== undefined ? sample.metadata.snr : tile.snr);
+          tile.rssi = sample.rssi !== null && sample.rssi !== undefined ? sample.rssi : (sample.metadata?.rssi !== null && sample.metadata?.rssi !== undefined ? sample.metadata.rssi : tile.rssi);
+        }
+        const path = sample.path || sample.metadata?.path || [];
+        path.forEach(p => tile.paths.add(p));
+      }
+      let rendered = 0;
+      for (const [tileHash, tile] of tileMap.entries()) {
+        try {
+          const [minLat, minLon, maxLat, maxLon] = geohashDecodeBbox(tileHash);
+          const totalSamples = tile.heard + tile.lost;
+          if (totalSamples === 0) continue;
+          const heardRatio = totalSamples > 0 ? tile.heard / totalSamples : 0;
+          const color = successRateToColor(heardRatio);
+          const baseOpacity = 0.75 * Math.min(1, totalSamples / 10);
+          const opacity = heardRatio > 0 ? baseOpacity * heardRatio : Math.max(baseOpacity, 0.4);
+          const rect = L.rectangle([[minLat, minLon], [maxLat, maxLon]], {
+            color: color,
+            weight: 1,
+            fillOpacity: Math.max(opacity, 0.2),
+            fillColor: color
+          });
+          let details = `Heard: ${tile.heard} Lost: ${tile.lost} (${(100 * heardRatio).toFixed(0)}%)`;
+          if (tile.paths.size > 0) {
+            const repeaters = Array.from(tile.paths).slice(0, 5).map(r => r.toUpperCase());
+            details += `<br/>Repeaters: ${repeaters.join(', ')}${tile.paths.size > 5 ? '...' : ''}`;
+          }
+          if (tile.snr !== null && tile.snr !== undefined) {
+            details += `<br/>SNR: ${tile.snr} dB`;
+          }
+          if (tile.rssi !== null && tile.rssi !== undefined) {
+            details += `<br/>RSSI: ${tile.rssi} dBm`;
+          }
+          rect.bindPopup(details, { maxWidth: 320 });
+          coverageLayer.addLayer(rect);
+          rendered++;
+        } catch (err) {
+          // Silently skip invalid tiles
+        }
+      }
+    }
+
+    function setCoverageVisible(visible) {
+      coverageVisible = visible;
+      const btn = document.getElementById('coverage-toggle');
+      if (btn) {
+        btn.classList.toggle('active', visible);
+        btn.textContent = visible ? 'Hide coverage' : 'Coverage';
+      }
+      if (!nodesVisible) {
+        if (coverageLayer && map.hasLayer(coverageLayer)) {
+          map.removeLayer(coverageLayer);
+        }
+        return;
+      }
+      if (visible) {
+        if (!map.hasLayer(coverageLayer)) {
+          coverageLayer.addTo(map);
+        }
+        if (!coverageData) {
+          fetchCoverageData().then(data => {
+            if (data && Array.isArray(data)) {
+              coverageData = data;
+              if (data.length === 0) {
+                reportError('Coverage database appears to be empty. Add coverage data to your coverage map server.');
+              }
+              renderCoverage(data);
+            } else {
+              reportError('Coverage API returned invalid data format');
+            }
+          });
+        } else {
+          renderCoverage(coverageData);
+        }
+      } else {
+        if (map.hasLayer(coverageLayer)) {
+          map.removeLayer(coverageLayer);
+        }
+      }
+    }
+
     function updateNodeSizeUi() {
       if (nodeSizeInput) {
         nodeSizeInput.value = String(nodeMarkerRadius);
@@ -390,6 +609,9 @@
         if (heatVisible && heatLayer && !map.hasLayer(heatLayer)) {
           heatLayer.addTo(map);
         }
+        if (coverageVisible && !map.hasLayer(coverageLayer)) {
+          coverageLayer.addTo(map);
+        }
       } else if (map.hasLayer(markerLayer)) {
         map.removeLayer(markerLayer);
         if (map.hasLayer(trailLayer)) {
@@ -404,6 +626,9 @@
         }
         if (heatLayer && map.hasLayer(heatLayer)) {
           map.removeLayer(heatLayer);
+        }
+        if (coverageLayer && map.hasLayer(coverageLayer)) {
+          map.removeLayer(coverageLayer);
         }
       } else if (map.hasLayer(trailLayer)) {
         map.removeLayer(trailLayer);
@@ -3362,6 +3587,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       });
     }
 
+    const coverageToggle = document.getElementById('coverage-toggle');
+    if (coverageToggle) {
+      const storedCoverageVisible = localStorage.getItem('meshmapShowCoverage');
+      let initialCoverage = storedCoverageVisible !== null ? storedCoverageVisible === 'true' : false;
+      setCoverageVisible(initialCoverage);
+      coverageToggle.addEventListener('click', () => {
+        try {
+          setCoverageVisible(!coverageVisible);
+          localStorage.setItem('meshmapShowCoverage', coverageVisible ? 'true' : 'false');
+        } catch (err) {
+          reportError(`Coverage toggle failed: ${err && err.message ? err.message : err}`);
+        }
+      });
+    }
+
     const propToggle = document.getElementById('prop-toggle');
     const propTxInput = document.getElementById('prop-txpower');
     const propOpacityInput = document.getElementById('prop-opacity');
@@ -3638,4 +3878,3 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         setPropagationOrigin(ev.latlng);
       }
     });
-  

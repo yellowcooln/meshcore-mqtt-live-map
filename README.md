@@ -2,7 +2,7 @@
 
 Live MeshCore traffic map that renders nodes, routes, and activity in real time on a Leaflet map. The backend subscribes to MQTT over WebSockets + TLS, decodes MeshCore packets with `@michaelhart/meshcore-decoder`, and streams updates to the browser via WebSockets.
 
-Live example sites: 
+Live example sites:
 - https://live.bostonme.sh/ - Greater Boston Mesh Map
 - https://map.eastmesh.au/ - Aus Eastern Mesh Live Map
 - https://mesh-map.e-l33t.org/ - NSW Mesh - Live Mesh Traffic Map
@@ -92,7 +92,10 @@ MQTT:
 - `MQTT_TRANSPORT` (`websockets`)
 - `MQTT_WS_PATH` (usually `/` or `/mqtt`)
 - `MQTT_TLS` (`true`)
-- `MQTT_TOPIC` (e.g. `meshcore/#`)
+- `MQTT_TOPIC` (e.g. `meshcore/#` or `meshcore/#,other/topic/+` for multiple topics)
+
+Coverage layer:
+- `COVERAGE_API_URL` (URL to coverage map API, e.g. `http://localhost:3000` or `https://coverage.example.com`)
 
 Device + route tuning:
 - `DEVICE_TTL_SECONDS` (node expiry)

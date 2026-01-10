@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from dataclasses import asdict
 from typing import Any, Dict, Optional, Set, List
 
+import httpx
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -52,6 +53,7 @@ from config import (
   MQTT_USERNAME,
   MQTT_PASSWORD,
   MQTT_TOPIC,
+  MQTT_TOPICS,
   MQTT_TLS,
   MQTT_TLS_INSECURE,
   MQTT_CA_CERT,
@@ -113,6 +115,7 @@ from config import (
   LOS_SAMPLE_STEP_METERS,
   ELEVATION_CACHE_TTL,
   LOS_PEAKS_MAX,
+  COVERAGE_API_URL,
   APP_DIR,
   NODE_SCRIPT_PATH,
 )
@@ -489,8 +492,10 @@ async def _state_saver() -> None:
 
 
 def mqtt_on_connect(client, userdata, flags, reason_code, properties=None):
-  print(f"[mqtt] connected reason_code={reason_code} subscribing topic={MQTT_TOPIC}")
-  client.subscribe(MQTT_TOPIC, qos=0)
+  topics_str = ", ".join(MQTT_TOPICS)
+  print(f"[mqtt] connected reason_code={reason_code} subscribing topics={topics_str}")
+  for topic in MQTT_TOPICS:
+    client.subscribe(topic, qos=0)
 
 
 def mqtt_on_disconnect(client, userdata, reason_code, properties=None, *args, **kwargs):
@@ -1400,6 +1405,33 @@ def line_of_sight(lat1: float, lon1: float, lat2: float, lon2: float, profile: b
   return response
 
 
+@app.get("/coverage")
+async def get_coverage():
+  if not COVERAGE_API_URL:
+    raise HTTPException(status_code=503, detail="coverage_api_not_configured: Set COVERAGE_API_URL in .env (e.g., http://localhost:3000)")
+  try:
+    url = f"{COVERAGE_API_URL}/get-samples"
+    print(f"[coverage] Fetching from {url}")
+    async with httpx.AsyncClient(timeout=10.0) as client:
+      response = await client.get(url)
+      response.raise_for_status()
+      data = response.json()
+      # /get-samples returns { keys: [...] }, extract the keys array
+      samples = data.get("keys", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+      print(f"[coverage] Received {len(samples) if isinstance(samples, list) else 'non-list'} items from coverage API")
+      if isinstance(samples, list) and len(samples) > 0:
+        print(f"[coverage] Sample item keys: {list(samples[0].keys()) if samples[0] else 'N/A'}")
+      return samples
+  except httpx.TimeoutException:
+    raise HTTPException(status_code=504, detail="coverage_api_timeout")
+  except httpx.HTTPStatusError as e:
+    raise HTTPException(status_code=502, detail=f"coverage_api_error: HTTP {e.response.status_code} from {COVERAGE_API_URL}")
+  except httpx.HTTPError as e:
+    raise HTTPException(status_code=502, detail=f"coverage_api_error: {str(e)}")
+  except Exception as e:
+    raise HTTPException(status_code=500, detail=f"coverage_fetch_error: {str(e)}")
+
+
 @app.get("/debug/last")
 def debug_last_entries():
   if PROD_MODE:
@@ -1466,8 +1498,9 @@ async def startup():
   loop = asyncio.get_event_loop()
   transport = "websockets" if MQTT_TRANSPORT == "websockets" else "tcp"
 
+  topics_str = ", ".join(MQTT_TOPICS)
   print(
-    f"[mqtt] connecting host={MQTT_HOST} port={MQTT_PORT} tls={MQTT_TLS} transport={transport} ws_path={MQTT_WS_PATH if transport=='websockets' else '-'} topic={MQTT_TOPIC}"
+    f"[mqtt] connecting host={MQTT_HOST} port={MQTT_PORT} tls={MQTT_TLS} transport={transport} ws_path={MQTT_WS_PATH if transport=='websockets' else '-'} topics={topics_str}"
   )
 
   mqtt_client = mqtt.Client(

@@ -9,6 +9,7 @@ MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 
 MQTT_TOPIC = os.getenv("MQTT_TOPIC", "meshcore/#")
+MQTT_TOPICS = [t.strip() for t in MQTT_TOPIC.split(",") if t.strip()]
 
 MQTT_TLS = os.getenv("MQTT_TLS", "false").lower() == "true"
 MQTT_TLS_INSECURE = os.getenv("MQTT_TLS_INSECURE", "false").lower() == "true"
@@ -110,6 +111,8 @@ LOS_SAMPLE_MAX = int(os.getenv("LOS_SAMPLE_MAX", "80"))
 LOS_SAMPLE_STEP_METERS = int(os.getenv("LOS_SAMPLE_STEP_METERS", "250"))
 ELEVATION_CACHE_TTL = int(os.getenv("ELEVATION_CACHE_TTL", "21600"))
 LOS_PEAKS_MAX = int(os.getenv("LOS_PEAKS_MAX", "4"))
+
+COVERAGE_API_URL = os.getenv("COVERAGE_API_URL", "").strip()
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 NODE_SCRIPT_PATH = os.path.join(APP_DIR, "meshcore_decode.mjs")

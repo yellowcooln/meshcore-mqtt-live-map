@@ -40,6 +40,7 @@ services:
       MAP_RADIUS_KM: "${MAP_RADIUS_KM:-0}"
       MAP_RADIUS_SHOW: "${MAP_RADIUS_SHOW:-false}"
       MAP_DEFAULT_LAYER: "${MAP_DEFAULT_LAYER:-light}"
+      COVERAGE_API_URL: "${COVERAGE_API_URL:-}"
     restart: unless-stopped
     volumes:
       - ./data:/data
