@@ -13,6 +13,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPExcept
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlencode
+from io import BytesIO
+from PIL import Image, ImageDraw
+import math
 
 import state
 from decoder import (
@@ -1120,13 +1123,37 @@ def root(request: Request):
       zoom = max(1, min(18, zoom))  # Clamp zoom between 1-18
 
       # Generate preview image URL pointing to our own server
+      # Use absolute URL for better compatibility with Discord and other platforms
       base_url = str(request.url).split('?')[0]
-      preview_params = urlencode({"lat": lat, "lon": lon, "zoom": zoom, "marker": "blue"})
+      preview_params = urlencode({"lat": lat, "lon": lon, "zoom": zoom, "marker": "blue", "theme": "dark"})
       preview_url = f"{base_url}/preview.png?{preview_params}"
 
+      # Ensure absolute URL (use SITE_URL if available, otherwise construct from request)
+      if SITE_URL and SITE_URL.startswith("http"):
+        site_base = SITE_URL.rstrip("/")
+        preview_url = f"{site_base}/preview.png?{preview_params}"
+      elif not preview_url.startswith("http"):
+        # Fallback: construct from request
+        scheme = request.url.scheme
+        host = request.headers.get("host", request.url.hostname or "localhost")
+        preview_url = f"{scheme}://{host}/preview.png?{preview_params}"
+
       safe_image = html.escape(preview_url, quote=True)
-      og_image_tag = f'<meta property="og:image" content="{safe_image}" />'
+      # Add image dimensions for better Discord/social media compatibility
+      # Note: Preview image may fail if container can't reach external services
+      # In that case, fall back to static SITE_OG_IMAGE if available
+      og_image_tag = (
+        f'<meta property="og:image" content="{safe_image}" />\n'
+        f'  <meta property="og:image:width" content="1200" />\n'
+        f'  <meta property="og:image:height" content="630" />\n'
+        f'  <meta property="og:image:type" content="image/png" />'
+      )
       twitter_image_tag = f'<meta name="twitter:image" content="{safe_image}" />'
+
+      # If static image is configured, add it as a fallback
+      if SITE_OG_IMAGE:
+        safe_static_image = html.escape(str(SITE_OG_IMAGE), quote=True)
+        og_image_tag += f'\n  <meta property="og:image:secure_url" content="{safe_static_image}" />'
 
       # Update og:url to include query parameters
       base_url = str(request.url).split('?')[0]
@@ -1194,6 +1221,7 @@ async def preview_image(
   lon: Optional[float] = Query(None, alias="lon"),
   zoom: Optional[int] = Query(13, alias="zoom"),
   marker: Optional[str] = Query("blue", alias="marker"),
+  theme: Optional[str] = Query("dark", alias="theme"),
 ):
   """
   Generate a preview image of the map with a pin marker at the specified coordinates.
@@ -1213,48 +1241,205 @@ async def preview_image(
     )
 
   try:
-    zoom = max(1, min(18, int(zoom) if zoom else 13))
+    zoom_val = max(1, min(18, int(zoom) if zoom else 14))
 
     # Image dimensions for social media previews (Open Graph standard)
     width = 1200
     height = 630
 
     # Validate and sanitize marker option
-    # staticmap.openstreetmap.de supports: color-pin or color format
-    # Common colors: red, blue, green, yellow, orange, purple, black, white
-    marker_str = str(marker).lower().strip()
+    marker_str = str(marker).lower().strip() if marker else "blue"
     if not marker_str or marker_str == "none":
       marker_str = "blue"
 
-    # Use OpenStreetMap static map service to generate the image
-    # This is a simple approach - fetches from OSM's static map service
-    # Alternative: could use PIL to composite tiles ourselves
-    static_map_url = (
-      f"https://staticmap.openstreetmap.de/staticmap.php?"
-      f"center={lat},{lon}&"
-      f"zoom={zoom}&"
-      f"size={width}x{height}&"
-      f"markers={lat},{lon},{marker_str}"
-    )
+    # Validate theme option (light or dark)
+    theme_str = str(theme).lower().strip() if theme else "dark"
+    if theme_str not in ("light", "dark"):
+      theme_str = "dark"
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-      response = await client.get(static_map_url)
-      if response.status_code == 200:
-        return Response(
-          content=response.content,
-          media_type="image/png",
-          headers={
-            "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
-          }
+    # Generate map image server-side using OSM tiles
+    try:
+      # Convert lat/lon to tile coordinates
+      def deg2num(lat_deg, lon_deg, zoom_level):
+        lat_rad = math.radians(lat_deg)
+        n = 2.0 ** zoom_level
+        xtile = int((lon_deg + 180.0) / 360.0 * n)
+        ytile = int((1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n)
+        return (xtile, ytile)
+
+      def num2deg(xtile, ytile, zoom_level):
+        n = 2.0 ** zoom_level
+        lon_deg = xtile / n * 360.0 - 180.0
+        lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * ytile / n)))
+        lat_deg = math.degrees(lat_rad)
+        return (lat_deg, lon_deg)
+
+      # Calculate which tiles we need
+      center_tile_x, center_tile_y = deg2num(lat, lon, zoom_val)
+      tile_size = 256
+      tiles_x = math.ceil(width / tile_size) + 2
+      tiles_y = math.ceil(height / tile_size) + 2
+
+      # Calculate pixel position of center point within its tile
+      # Get the northwest corner of the center tile
+      nw_lat, nw_lon = num2deg(center_tile_x, center_tile_y, zoom_val)
+      # Get the southeast corner of the center tile
+      se_lat, se_lon = num2deg(center_tile_x + 1, center_tile_y + 1, zoom_val)
+
+      # Calculate pixel offset within the center tile
+      center_tile_pixel_x = int((lon - nw_lon) / (se_lon - nw_lon) * tile_size)
+      center_tile_pixel_y = int((nw_lat - lat) / (nw_lat - se_lat) * tile_size)
+
+      # Calculate which tiles to fetch
+      start_tile_x = center_tile_x - tiles_x // 2
+      start_tile_y = center_tile_y - tiles_y // 2
+
+      # Create blank image with theme-appropriate background
+      bg_color = (18, 18, 18) if theme_str == "dark" else (242, 239, 233)  # Dark or light background
+      final_image = Image.new('RGB', (width, height), bg_color)
+
+      # Fetch and composite tiles
+      tiles_fetched = 0
+      tiles_failed = 0
+      async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+        for ty in range(tiles_y):
+          for tx in range(tiles_x):
+            tile_x = start_tile_x + tx
+            tile_y = start_tile_y + ty
+
+            # Use theme-appropriate tile server
+            if theme_str == "dark":
+              # CartoDB Dark Matter tiles
+              tile_url = f"https://a.basemaps.cartocdn.com/dark_all/{zoom_val}/{tile_x}/{tile_y}.png"
+            else:
+              # Standard OSM light tiles
+              tile_url = f"https://tile.openstreetmap.org/{zoom_val}/{tile_x}/{tile_y}.png"
+
+            try:
+              response = await client.get(tile_url)
+              if response.status_code == 200:
+                tile_img = Image.open(BytesIO(response.content))
+                # Calculate position: center the marker at the center of the image
+                # The center tile should place the marker at the center pixel position
+                x_offset = (tx - tiles_x // 2) * tile_size + width // 2 - center_tile_pixel_x
+                y_offset = (ty - tiles_y // 2) * tile_size + height // 2 - center_tile_pixel_y
+                final_image.paste(tile_img, (x_offset, y_offset), tile_img if tile_img.mode == 'RGBA' else None)
+                tiles_fetched += 1
+              else:
+                tiles_failed += 1
+                print(f"[preview] Tile {tile_x}/{tile_y} returned status {response.status_code}")
+            except Exception as tile_error:
+              tiles_failed += 1
+              print(f"[preview] Failed to fetch tile {tile_x}/{tile_y} from {tile_url}: {tile_error}")
+              continue
+
+      print(f"[preview] Fetched {tiles_fetched} tiles, {tiles_failed} failed")
+
+      # Draw marker
+      marker_color_map = {
+        'red': (220, 53, 69),
+        'blue': (0, 123, 255),
+        'green': (40, 167, 69),
+        'yellow': (255, 193, 7),
+        'orange': (255, 152, 0),
+        'purple': (108, 117, 125),
+        'black': (0, 0, 0),
+        'white': (255, 255, 255),
+      }
+      marker_color = marker_color_map.get(marker_str, (0, 123, 255))  # Default to blue
+
+      # Calculate marker position (center of image)
+      marker_x = width // 2
+      marker_y = height // 2
+
+      draw = ImageDraw.Draw(final_image)
+      # Draw a circle marker
+      marker_radius = 12
+      draw.ellipse(
+        [(marker_x - marker_radius, marker_y - marker_radius),
+         (marker_x + marker_radius, marker_y + marker_radius)],
+        fill=marker_color,
+        outline=(255, 255, 255),
+        width=2
+      )
+
+      # Convert to PNG bytes
+      img_bytes = BytesIO()
+      final_image.save(img_bytes, format='PNG')
+      img_bytes.seek(0)
+
+      return Response(
+        content=img_bytes.getvalue(),
+        media_type="image/png",
+        headers={
+          "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+        }
+      )
+
+    except Exception as e:
+      print(f"[preview] Error generating map image: {e}")
+      import traceback
+      traceback.print_exc()
+
+      # Even if tile fetching fails, try to return a simple map with marker
+      try:
+        bg_color = (18, 18, 18) if theme_str == "dark" else (242, 239, 233)
+        fallback_image = Image.new('RGB', (width, height), bg_color)
+        draw = ImageDraw.Draw(fallback_image)
+
+        # Draw marker
+        marker_color_map = {
+          'red': (220, 53, 69),
+          'blue': (0, 123, 255),
+          'green': (40, 167, 69),
+          'yellow': (255, 193, 7),
+          'orange': (255, 152, 0),
+          'purple': (108, 117, 125),
+          'black': (0, 0, 0),
+          'white': (255, 255, 255),
+        }
+        marker_color = marker_color_map.get(marker_str, (0, 123, 255))
+        marker_x = width // 2
+        marker_y = height // 2
+        marker_radius = 12
+        draw.ellipse(
+          [(marker_x - marker_radius, marker_y - marker_radius),
+           (marker_x + marker_radius, marker_y + marker_radius)],
+          fill=marker_color,
+          outline=(255, 255, 255),
+          width=2
         )
-      else:
-        # Fallback: return empty image
+
+        img_bytes = BytesIO()
+        fallback_image.save(img_bytes, format='PNG')
+        img_bytes.seek(0)
+
+        print(f"[preview] Returning fallback image with marker (tile fetch failed)")
         return Response(
-          content=b"",
-          status_code=response.status_code,
-          media_type="image/png"
+          content=img_bytes.getvalue(),
+          media_type="image/png",
+          headers={"Cache-Control": "public, max-age=300"}
+        )
+      except Exception as fallback_error:
+        print(f"[preview] Fallback image generation also failed: {fallback_error}")
+        # Only redirect to static image if even fallback fails
+        if SITE_OG_IMAGE and SITE_OG_IMAGE.startswith("http"):
+          from fastapi.responses import RedirectResponse
+          print(f"[preview] All image generation failed, redirecting to static OG image: {SITE_OG_IMAGE}")
+          return RedirectResponse(url=SITE_OG_IMAGE, status_code=302)
+
+        # Return transparent PNG as last resort
+        transparent_png = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xdb\x00\x00\x00\x00IEND\xaeB`\x82'
+        return Response(
+          content=transparent_png,
+          media_type="image/png",
+          headers={"Cache-Control": "public, max-age=300"}
         )
   except Exception as e:
+    # Log error for debugging
+    print(f"[preview] Error generating preview image: {e}")
+    import traceback
+    traceback.print_exc()
     # Return empty image on error
     return Response(
       content=b"",

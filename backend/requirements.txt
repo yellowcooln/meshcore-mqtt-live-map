@@ -2,3 +2,4 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 paho-mqtt==2.1.0
 httpx==0.27.2
+Pillow==10.4.0
