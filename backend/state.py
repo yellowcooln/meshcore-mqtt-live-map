@@ -54,4 +54,5 @@ device_names: Dict[str, str] = {}
 message_origins: Dict[str, Dict[str, Any]] = {}
 device_roles: Dict[str, str] = {}
 device_role_sources: Dict[str, str] = {}
+device_coords: Dict[str, Dict[str, float]] = {}
 state_dirty = False

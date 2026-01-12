@@ -23,6 +23,7 @@ MQTT_CLIENT_ID = os.getenv("MQTT_CLIENT_ID", "")
 STATE_DIR = os.getenv("STATE_DIR", "/data")
 STATE_FILE = os.getenv("STATE_FILE", os.path.join(STATE_DIR, "state.json"))
 DEVICE_ROLES_FILE = os.getenv("DEVICE_ROLES_FILE", os.path.join(STATE_DIR, "device_roles.json"))
+DEVICE_COORDS_FILE = os.getenv("DEVICE_COORDS_FILE", os.path.join(STATE_DIR, "device_coords.json"))
 STATE_SAVE_INTERVAL = float(os.getenv("STATE_SAVE_INTERVAL", "5"))
 
 DEVICE_TTL_SECONDS = int(os.getenv("DEVICE_TTL_SECONDS", "300"))

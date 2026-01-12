@@ -171,6 +171,7 @@ Use it:
 - Route styling uses payload type: 2/5 = Message (blue), 8/9 = Trace (orange), 4 = Advert (green).
 - If hop hashes collide, the backend skips those hashes (unique-only mapping).
 - Coordinates at `0,0` (including string values) are filtered from devices, trails, and routes.
+- Device coordinate overrides: create `data/device_coords.json` to manually set coordinates for specific devices (overrides MQTT coordinates). Format: `{"device_id": {"lat": 42.3601, "lon": -71.1500}}`.
 
 ## API
 The backend exposes a nodes API for external tools (e.g. MeshBuddy):

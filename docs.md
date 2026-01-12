@@ -88,6 +88,12 @@ This project renders live MeshCore traffic on a Leaflet + OpenStreetMap map. A F
 - Roles persist to `data/state.json` with `device_role_sources`. Only explicit/override roles are restored on load.
 - Optional overrides: `data/device_roles.json` can force roles per device_id.
 
+## Device Coordinate Overrides
+- Create `data/device_coords.json` to manually override coordinates for specific devices.
+- Format: `{"device_id": {"lat": 42.3601, "lon": -71.1500}}`
+- Coordinate overrides take precedence over MQTT coordinates and are applied on startup and when processing device updates.
+- Overrides are loaded from `DEVICE_COORDS_FILE` (defaults to `data/device_coords.json`).
+
 ## Routes / Message Paths
 Routes are drawn when:
 - A packet contains a path list (decoder `pathHashes` or `path`), or

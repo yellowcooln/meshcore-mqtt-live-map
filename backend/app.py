@@ -9,9 +9,10 @@ from typing import Any, Dict, Optional, Set, List
 
 import httpx
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Query
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from urllib.parse import urlencode
 
 import state
 from decoder import (
@@ -63,6 +64,7 @@ from config import (
   STATE_DIR,
   STATE_FILE,
   DEVICE_ROLES_FILE,
+  DEVICE_COORDS_FILE,
   STATE_SAVE_INTERVAL,
   DEVICE_TTL_SECONDS,
   TRAIL_LEN,
@@ -143,6 +145,7 @@ from state import (
   message_origins,
   device_roles,
   device_role_sources,
+  device_coords,
 )
 
 # =========================
@@ -177,6 +180,35 @@ def _load_role_overrides() -> Dict[str, str]:
       continue
     roles[key.strip()] = role
   return roles
+
+
+def _load_coord_overrides() -> Dict[str, Dict[str, float]]:
+  if not DEVICE_COORDS_FILE or not os.path.exists(DEVICE_COORDS_FILE):
+    return {}
+  try:
+    with open(DEVICE_COORDS_FILE, "r", encoding="utf-8") as handle:
+      data = json.load(handle)
+  except Exception:
+    return {}
+  if not isinstance(data, dict):
+    return {}
+  coords: Dict[str, Dict[str, float]] = {}
+  for key, value in data.items():
+    if not isinstance(key, str) or not isinstance(value, dict):
+      continue
+    lat = value.get("lat")
+    lon = value.get("lon")
+    if lat is None or lon is None:
+      continue
+    try:
+      lat_f = float(lat)
+      lon_f = float(lon)
+      if not (-90 <= lat_f <= 90) or not (-180 <= lon_f <= 180):
+        continue
+      coords[key.strip()] = {"lat": lat_f, "lon": lon_f}
+    except (ValueError, TypeError):
+      continue
+  return coords
 
 
 def _serialize_state() -> Dict[str, Any]:
@@ -467,6 +499,13 @@ def _load_state() -> None:
   if dropped_ids:
     for device_id in dropped_ids:
       device_roles.pop(device_id, None)
+  coord_overrides = _load_coord_overrides()
+  if coord_overrides:
+    device_coords.clear()
+    device_coords.update(coord_overrides)
+  if dropped_ids:
+    for device_id in dropped_ids:
+      device_coords.pop(device_id, None)
   _rebuild_node_hash_map()
 
   for device_id, state in devices.items():
@@ -474,6 +513,11 @@ def _load_state() -> None:
       state.name = device_names[device_id]
     role_value = device_roles.get(device_id)
     state.role = role_value if role_value else None
+    # Apply coordinate override if present
+    coord_override = device_coords.get(device_id)
+    if coord_override:
+      state.lat = coord_override["lat"]
+      state.lon = coord_override["lon"]
 
 
 async def _state_saver() -> None:
@@ -905,10 +949,18 @@ async def broadcaster():
           clients.discard(ws)
       continue
     is_new_device = device_id not in devices
+    # Apply coordinate override if present
+    coord_override = device_coords.get(device_id)
+    if coord_override:
+      lat = coord_override["lat"]
+      lon = coord_override["lon"]
+    else:
+      lat = upd["lat"]
+      lon = upd["lon"]
     device_state = DeviceState(
       device_id=device_id,
-      lat=upd["lat"],
-      lon=upd["lon"],
+      lat=lat,
+      lon=lon,
       ts=upd.get("ts", time.time()),
       heading=upd.get("heading"),
       speed=upd.get("speed"),
@@ -1041,7 +1093,7 @@ async def reaper():
 # FastAPI routes
 # =========================
 @app.get("/")
-def root():
+def root(request: Request):
   html_path = os.path.join(APP_DIR, "static", "index.html")
   try:
     with open(html_path, "r", encoding="utf-8") as handle:
@@ -1049,9 +1101,46 @@ def root():
   except Exception:
     return FileResponse("static/index.html")
 
+  # Check for lat/lon parameters for dynamic preview image
+  query_params = request.query_params
+  lat_param = query_params.get("lat") or query_params.get("latitude")
+  lon_param = query_params.get("lon") or query_params.get("lng") or query_params.get("long") or query_params.get("longitude")
+  zoom_param = query_params.get("zoom")
+
   og_image_tag = ""
   twitter_image_tag = ""
-  if SITE_OG_IMAGE:
+  og_url = SITE_URL
+
+  # Generate dynamic preview image if coordinates are provided
+  if lat_param and lon_param:
+    try:
+      lat = float(lat_param)
+      lon = float(lon_param)
+      zoom = int(zoom_param) if zoom_param and zoom_param.isdigit() else 13
+      zoom = max(1, min(18, zoom))  # Clamp zoom between 1-18
+
+      # Generate preview image URL pointing to our own server
+      base_url = str(request.url).split('?')[0]
+      preview_params = urlencode({"lat": lat, "lon": lon, "zoom": zoom, "marker": "blue"})
+      preview_url = f"{base_url}/preview.png?{preview_params}"
+
+      safe_image = html.escape(preview_url, quote=True)
+      og_image_tag = f'<meta property="og:image" content="{safe_image}" />'
+      twitter_image_tag = f'<meta name="twitter:image" content="{safe_image}" />'
+
+      # Update og:url to include query parameters
+      base_url = str(request.url).split('?')[0]
+      og_url = f"{base_url}?lat={lat}&lon={lon}"
+      if zoom_param:
+        og_url += f"&zoom={zoom}"
+    except (ValueError, TypeError):
+      # Invalid coordinates, fall back to static image
+      if SITE_OG_IMAGE:
+        safe_image = html.escape(str(SITE_OG_IMAGE), quote=True)
+        og_image_tag = f'<meta property="og:image" content="{safe_image}" />'
+        twitter_image_tag = f'<meta name="twitter:image" content="{safe_image}" />'
+  elif SITE_OG_IMAGE:
+    # Use static image if no coordinates provided
     safe_image = html.escape(str(SITE_OG_IMAGE), quote=True)
     og_image_tag = f'<meta property="og:image" content="{safe_image}" />'
     twitter_image_tag = f'<meta name="twitter:image" content="{safe_image}" />'
@@ -1063,10 +1152,13 @@ def root():
   if TRAIL_LEN > 0:
     trail_info_suffix = f" Trails show last ~{TRAIL_LEN} points."
 
+  # Escape og_url for HTML
+  safe_og_url = html.escape(str(og_url), quote=True)
+
   replacements = {
     "SITE_TITLE": SITE_TITLE,
     "SITE_DESCRIPTION": SITE_DESCRIPTION,
-    "SITE_URL": SITE_URL,
+    "SITE_URL": safe_og_url,  # Use dynamic URL if coordinates provided
     "SITE_ICON": SITE_ICON,
     "SITE_FEED_NOTE": SITE_FEED_NOTE,
     "DISTANCE_UNITS": DISTANCE_UNITS,
@@ -1094,6 +1186,81 @@ def root():
     content = content.replace(f"{{{{{key}}}}}", safe_value)
 
   return HTMLResponse(content)
+
+
+@app.get("/preview.png")
+async def preview_image(
+  lat: Optional[float] = Query(None, alias="lat"),
+  lon: Optional[float] = Query(None, alias="lon"),
+  zoom: Optional[int] = Query(13, alias="zoom"),
+  marker: Optional[str] = Query("blue", alias="marker"),
+):
+  """
+  Generate a preview image of the map with a pin marker at the specified coordinates.
+  Returns a PNG image suitable for Open Graph/Twitter card previews.
+
+  Marker options:
+  - red-pin, blue-pin, green-pin, yellow-pin, orange-pin, purple-pin, black-pin, white-pin
+  - red, blue, green, yellow, orange, purple, black, white (simple circle markers)
+  - Custom format: color-pin or color (e.g., "blue-pin", "green")
+  """
+  if lat is None or lon is None:
+    # Return a default/error image if coordinates not provided
+    return Response(
+      content=b"",
+      status_code=400,
+      media_type="image/png"
+    )
+
+  try:
+    zoom = max(1, min(18, int(zoom) if zoom else 13))
+
+    # Image dimensions for social media previews (Open Graph standard)
+    width = 1200
+    height = 630
+
+    # Validate and sanitize marker option
+    # staticmap.openstreetmap.de supports: color-pin or color format
+    # Common colors: red, blue, green, yellow, orange, purple, black, white
+    marker_str = str(marker).lower().strip()
+    if not marker_str or marker_str == "none":
+      marker_str = "blue"
+
+    # Use OpenStreetMap static map service to generate the image
+    # This is a simple approach - fetches from OSM's static map service
+    # Alternative: could use PIL to composite tiles ourselves
+    static_map_url = (
+      f"https://staticmap.openstreetmap.de/staticmap.php?"
+      f"center={lat},{lon}&"
+      f"zoom={zoom}&"
+      f"size={width}x{height}&"
+      f"markers={lat},{lon},{marker_str}"
+    )
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+      response = await client.get(static_map_url)
+      if response.status_code == 200:
+        return Response(
+          content=response.content,
+          media_type="image/png",
+          headers={
+            "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+          }
+        )
+      else:
+        # Fallback: return empty image
+        return Response(
+          content=b"",
+          status_code=response.status_code,
+          media_type="image/png"
+        )
+  except Exception as e:
+    # Return empty image on error
+    return Response(
+      content=b"",
+      status_code=500,
+      media_type="image/png"
+    )
 
 
 @app.get("/manifest.webmanifest")
