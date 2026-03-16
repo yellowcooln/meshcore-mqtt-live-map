@@ -1412,6 +1412,7 @@ def mqtt_on_message(client, userdata, msg: mqtt.MQTTMessage):
   message_hash = decoder_meta.get("messageHash") or debug.get("packet_hash")
   snr_values = decoder_meta.get("snrValues")
   path_header = decoder_meta.get("path")
+  path_length = decoder_meta.get("pathLength")
   direction = debug.get("direction")
   receiver_id = _device_id_from_topic(msg.topic)
   route_origin_id = None
@@ -1462,6 +1463,19 @@ def mqtt_on_message(client, userdata, msg: mqtt.MQTTMessage):
   elif payload_type not in (8, 9) and isinstance(path_header, list):
     if route_type in (0, 1):
       route_hashes = path_header
+
+  # When the decoder reports 2-byte path IDs, integer hashes in the range
+  # 0-255 must be padded to 4-char hex (e.g., 0x00AB → "00AB") instead of
+  # collapsing to 2-char ("AB"), which would mismatch the device hash index.
+  try:
+    path_length_int = int(path_length) if path_length is not None else None
+  except (TypeError, ValueError):
+    path_length_int = None
+  if route_hashes and path_length_int == 2:
+    route_hashes = [
+      f"{h:04X}" if isinstance(h, int) else h
+      for h in route_hashes
+    ]
 
   route_emitted = False
   if route_hashes and payload_type in ROUTE_PAYLOAD_TYPES_SET:

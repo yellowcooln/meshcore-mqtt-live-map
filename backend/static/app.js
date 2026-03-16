@@ -4740,7 +4740,7 @@ function hopPrefixDetailLabel(hash) {
 }
 
 
-function pointIdNodePrefix(pointId, hopHash = null) {
+function pointIdNodePrefix(pointId, hopHash = null, defaultWidth = 2) {
   if (!pointId) return null;
   const rawPoint = String(pointId).trim();
   if (!/^[0-9a-fA-F]+$/.test(rawPoint)) return null;
@@ -4749,11 +4749,11 @@ function pointIdNodePrefix(pointId, hopHash = null) {
   if (normalizedHop && normalizedPoint.startsWith(normalizedHop)) {
     return normalizedHop;
   }
-  return normalizedPoint.slice(0, 2) || null;
+  return normalizedPoint.slice(0, defaultWidth) || null;
 }
 
-function pointIdNodePrefixDetail(pointId, hopHash = null) {
-  const prefix = pointIdNodePrefix(pointId, hopHash);
+function pointIdNodePrefixDetail(pointId, hopHash = null, defaultWidth = 2) {
+  const prefix = pointIdNodePrefix(pointId, hopHash, defaultWidth);
   if (!prefix) return null;
   const bits = prefix.length * 4;
   const decVal = Number.parseInt(prefix, 16);
@@ -4776,6 +4776,15 @@ function buildRouteLogMeta(route) {
   const pointIds = Array.isArray(route.point_ids) && route.point_ids.length === route.points.length
     ? route.point_ids
     : null;
+  // Infer the widest hash prefix in use so origin/receiver nodes without a
+  // hop hash still display a prefix that matches the rest of the route.
+  let routeHashWidth = 2;
+  if (hashes) {
+    for (const h of hashes) {
+      const n = normalizeHopHashPrefix(h);
+      if (n && n.length > routeHashWidth) routeHashWidth = n.length;
+    }
+  }
   const pointRows = route.points.map((pt, idx) => {
     const lat = Number(pt[0]);
     const lon = Number(pt[1]);
@@ -4799,8 +4808,8 @@ function buildRouteLogMeta(route) {
       lon,
       point_id: pointId || null,
       point_label: pointId ? deviceLabelFromId(pointId) : null,
-      node_prefix: pointIdNodePrefix(pointId, hopHash),
-      node_prefix_detail: pointIdNodePrefixDetail(pointId, hopHash),
+      node_prefix: pointIdNodePrefix(pointId, hopHash, routeHashWidth),
+      node_prefix_detail: pointIdNodePrefixDetail(pointId, hopHash, routeHashWidth),
       hop_distance_m: hopDistance,
       hop_distance_label: Number.isFinite(hopDistance) ? formatDistanceUnits(hopDistance) : null,
       cumulative_m: cumulative,
