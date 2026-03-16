@@ -4923,10 +4923,22 @@ function upsertRoute(r, skipHeat = false) {
   const isAdvert = payloadType === 4;
   const isTrace = payloadType === 8 || payloadType === 9;
   const isMessage = payloadType === 2 || payloadType === 5;
+  // Determine widest path-ID byte width from the route's hop hashes:
+  // 2-char hash = 1-byte ID, 4-char = 2-byte, 6-char = 3-byte.
+  let pathHashWidth = 2;
+  if (Array.isArray(r.hashes) && r.hashes.length > 0) {
+    for (const h of r.hashes) {
+      const n = normalizeHopHashPrefix(h);
+      if (n && n.length > pathHashWidth) pathHashWidth = n.length;
+    }
+  }
+  const pathColor = pathHashWidth === 6 ? '#06b6d4'  // 3-byte: cyan
+                  : pathHashWidth === 4 ? '#a855f7'  // 2-byte: purple
+                  : '#ff7a1a';                       // 1-byte: orange (default)
   const style = {
     color: isAdvert
       ? '#2ecc71'
-      : (isTrace ? '#ff7a1a' : (isMessage ? '#2b8cff' : (isFanout ? '#2b8cff' : '#ff7a1a'))),
+      : (isTrace ? '#ff7a1a' : (isMessage ? '#2b8cff' : (isFanout ? '#2b8cff' : pathColor))),
     weight: isFanout ? 4 : 5,
     opacity: isFanout ? 0.85 : 0.9,
     lineCap: 'butt',

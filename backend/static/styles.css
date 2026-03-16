@@ -192,6 +192,16 @@
       border-top-style: dashed;
     }
 
+    .legend-path-2byte {
+      border-color: #a855f7;
+      border-top-style: dashed;
+    }
+
+    .legend-path-3byte {
+      border-color: #06b6d4;
+      border-top-style: dashed;
+    }
+
     .legend-message {
       border-color: #2b8cff;
       border-top-style: dashed;
