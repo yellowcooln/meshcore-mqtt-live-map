@@ -1,7 +1,7 @@
 # How-To: MQTT Broker + Live Map
 
 This guide covers two parts: stand up a MeshCore MQTT broker and point the live map at it.
-Current version: `1.9.6` (see `VERSIONS.md`).
+Current version: `1.9.7` (see `VERSIONS.md`).
 
 Useful UI defaults in the live map `.env`:
 - `HEAT_DEFAULT_ON=true|false` sets the default Heat toggle state for first load.
@@ -171,71 +171,42 @@ Authentication summary:
 - If you use subscriber role `3`, some metadata fields are filtered out.
   Role `2` is the recommended default for maps.
 
-### Get and configure a CARTO API key for dark mode
+<a id="get-and-configure-a-carto-api-key-for-dark-mode"></a>
 
-As of August 26, 2026, CARTO requires an API key for the raster Dark Matter
-tiles used by this map. CARTO provides a free allowance of 5 million raster and
-vector tile requests per calendar month. A CARTO account is not required, and
-CARTO says the key is emailed immediately without an approval queue. See the
-[CARTO key request page](https://carto.com/basemaps/apikey/) and
-[CARTO basemap FAQ](https://docs.carto.com/faqs/carto-basemaps).
+### Optional CARTO key for satellite labels and dark previews
 
-1. Open [CARTO's basemap key request form](https://carto.com/basemaps/apikey/).
-2. Enter an email address you can receive the key at and your name or
-   organization.
-3. Enter each hostname that will serve your map, one per line. CARTO explicitly
-   permits `localhost` for development. For example:
+The browser's Dark map uses OpenFreeMap and does not require a CARTO key.
+`CARTO_BASEMAP_KEY` remains optional for the CARTO label overlay on Satellite
+and for server-generated dark social preview tiles. Without it, Satellite still
+shows EOX Sentinel-2 imagery without labels and dark previews fall back to
+OpenStreetMap.
 
-   ```text
-   map.example.com
-   localhost
-   ```
+To enable those optional CARTO surfaces:
 
-   Register hostnames, not individual map paths. One `map.example.com` entry
-   covers related maps served at paths such as `/socal/`, `/bayarea/`, and
-   `/centralcoast/`. Do not enter each full URL separately.
-
-4. Answer the commercial-use and estimated-map-load questions accurately.
-5. Select **Raster (PNG tiles)** because this live map currently uses CARTO's
-   raster Dark Matter tiles.
-6. Briefly describe the deployment, review the
-   [CARTO Basemaps Terms](https://carto.com/legal/basemap-terms/), retain the
-   required CARTO and OpenStreetMap attribution, and submit the form.
-7. Copy the key from CARTO's email into the live map `.env`:
+1. Request a project key from
+   [CARTO's basemap key form](https://carto.com/basemaps/apikey/) and register
+   every deployment hostname, including `localhost` when needed for development.
+2. Review the
+   [CARTO Basemaps Terms](https://carto.com/legal/basemap-terms/) and retain the
+   required CARTO and OpenStreetMap attribution.
+3. Put the key in the deployment's untracked `.env`:
 
    ```env
    CARTO_BASEMAP_KEY=your-carto-key
    ```
 
-   If one website runs several related map instances, each instance must receive
-   `CARTO_BASEMAP_KEY` in its own process/container environment. The same
-   project-specific key can be used by those related maps on the registered
-   hostname. Their tile requests all count against that key's shared monthly
-   allowance. For example, a site with maps at `/socal/`, `/bayarea/`, `/sac/`,
-   `/centralcoast/`, and `/centralvalley/` must pass the key to all five map
-   services; setting it only on the landing page or one container is not enough.
-
-8. Recreate the map container so it reads the updated environment:
+4. Recreate the container so it receives the new environment:
 
    ```bash
    docker compose up -d --force-recreate
    ```
 
-9. Open the map and select **Dark map**. Also test a shared map URL with
-   `lat`, `lon`, and `zoom` parameters so its generated social preview uses the
-   key. If an old `API KEY REQUIRED` tile remains, force-refresh the browser;
-   CARTO notes that browsers and its CDN may temporarily cache old tiles.
+5. Verify Satellite labels and a shared `lat`/`lon`/`zoom` URL's generated dark
+   preview. The normal Dark map should work with or without the key.
 
-Important:
-- Keep the key in `.env`; never commit it or put it in `.env.example`.
-- Use the key only for this project. CARTO says keys must not be shared or
-  reused across unrelated projects.
-- The key is visible in browser tile requests. This is expected for CARTO's
-  documented Leaflet integration; it is not a private server credential.
-- Keep CARTO and OpenStreetMap attribution visible.
-- Without `CARTO_BASEMAP_KEY`, the map hides the dark-mode control, generated
-  dark previews fall back to OpenStreetMap, and satellite imagery remains
-  available without the CARTO label overlay.
+Keep the key per-project and out of Git. CARTO's documented browser integration
+places it in satellite-label request URLs, so it is not a private server secret
+and must not be reused for unrelated projects.
 
 Presence behavior:
 - `/status` + `/internal` determine whether a node is shown as **MQTT online**.

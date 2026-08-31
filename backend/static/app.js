@@ -234,10 +234,15 @@ const cartoRasterTileUrl = (style) => (
   `https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png` +
   `?key=${encodeURIComponent(cartoBasemapKey)}`
 );
-const darkTiles = cartoBasemapKey ? L.tileLayer(cartoRasterTileUrl('dark_all'), {
-  maxZoom: 19,
-  attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-}) : null;
+const openFreeMapAttribution = (
+  '<a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a> ' +
+  '<a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">&copy; OpenMapTiles</a> ' +
+  'Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+);
+const darkTiles = L.maplibreGL({
+  style: 'https://tiles.openfreemap.org/styles/dark',
+  attributionControl: { customAttribution: openFreeMapAttribution }
+});
 const topoTiles = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
   maxZoom: 17,
   attribution: '&copy; OpenStreetMap contributors &copy; OpenTopoMap'
@@ -7962,12 +7967,11 @@ if (shareToggle) {
 const mapToggle = document.getElementById('map-toggle');
 const topoToggle = document.getElementById('topo-toggle');
 function setBaseLayer(name) {
-  if (name === 'dark' && !darkTiles) name = 'light';
   if (map.hasLayer(lightTiles)) map.removeLayer(lightTiles);
-  if (darkTiles && map.hasLayer(darkTiles)) map.removeLayer(darkTiles);
+  if (map.hasLayer(darkTiles)) map.removeLayer(darkTiles);
   if (map.hasLayer(topoTiles)) map.removeLayer(topoTiles);
   if (map.hasLayer(satelliteTiles)) map.removeLayer(satelliteTiles);
-  if (name === 'dark' && darkTiles) {
+  if (name === 'dark') {
     map.addLayer(darkTiles);
   } else if (name === 'topo') {
     map.addLayer(topoTiles);
@@ -7980,7 +7984,7 @@ function setBaseLayer(name) {
   baseLayer = name;
   localStorage.setItem('meshmapBaseLayer', baseLayer);
   if (mapToggle) {
-    mapToggle.hidden = !darkTiles;
+    mapToggle.hidden = false;
     mapToggle.textContent = baseLayer === 'dark' ? 'Light map' : 'Dark map';
     mapToggle.title = '';
   }

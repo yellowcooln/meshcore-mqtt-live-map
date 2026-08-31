@@ -1,5 +1,9 @@
 # Versions
 
+## v1.9.7 (08-30-2026)
+- Replaced the browser's CARTO Dark Matter raster layer with the keyless OpenFreeMap Dark vector style rendered through pinned MapLibre GL JS and MapLibre GL Leaflet releases. Dark mode is now available to every deployment without `CARTO_BASEMAP_KEY`, with OpenFreeMap, OpenMapTiles, and OpenStreetMap attribution shown in the map footer.
+- Kept `CARTO_BASEMAP_KEY` as an optional integration for CARTO satellite labels and server-generated dark social preview tiles; without a key, satellite imagery remains available without labels and dark previews continue to fall back to OpenStreetMap.
+
 ## v1.9.6 (08-26-2026)
 - Added `CARTO_BASEMAP_KEY` support for Dark Matter tiles, satellite labels, and dark social preview images. CARTO's free key covers up to 5 million tile requests per calendar month. The documented browser-direct integration keeps the key out of Git and logs but leaves it visible in tile requests, so it must remain scoped to this project and not be reused elsewhere. Deployments without a key hide the dark-mode control, fall previews back to OpenStreetMap, and keep satellite imagery available without the CARTO label overlay. See [Get and configure a CARTO API key for dark mode](howto.md#get-and-configure-a-carto-api-key-for-dark-mode).
 - Added comma-separated `COVERAGE_API_KEYS` through [PR #94](https://github.com/yellowcooln/meshcore-mqtt-live-map/pull/94) by [@Littleaton](https://github.com/Littleaton). MeshMapper coverage now fetches each key independently, merges and de-duplicates grid squares, preserves the existing single-key setting, and isolates rate-limit cooldowns per configured key.
