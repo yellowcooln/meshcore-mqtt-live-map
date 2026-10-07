@@ -50,7 +50,11 @@ def chain(monkeypatch):
     CancelledError = asyncio.CancelledError
 
     @staticmethod
-    async def sleep(_):
+    async def sleep(delay):
+      # Broadcaster fairness yields are real; stop only the reaper's timer.
+      if delay == 0:
+        await asyncio.sleep(0)
+        return
       raise asyncio.CancelledError()
 
   async def noop_async(*args):

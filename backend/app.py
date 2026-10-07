@@ -2768,6 +2768,8 @@ def _handle_mqtt_message(client, userdata, msg: mqtt.MQTTMessage):
 # =========================
 async def broadcaster():
   while True:
+    # Queue.get may not yield when backlogged; keep HTTP/new WS schedulable.
+    await asyncio.sleep(0)
     event = await update_queue.get()
     broadcaster_stats["last_event_ts"] = time.time()
 
