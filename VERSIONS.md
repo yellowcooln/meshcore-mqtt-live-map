@@ -1,6 +1,7 @@
 # Versions
 
 ## v1.9.7 (08-30-2026)
+- Fixed collided path prefixes keeping retired nodes alive. Heuristic route geometry remains visible, but ambiguous hop guesses no longer refresh node retention or teach neighbor/peer identities. Explicit neighbor overrides take precedence over proximity, while unique prefixes and full-ID endpoints retain normal activity tracking. Existing path timestamps expire under the configured retention policy.
 - Verify RF advert signatures before accepting node identities, names, coordinates, or route metadata. Reject malformed/signature-invalid packets before coordinate overrides or metadata updates, preventing corrupt adverts from creating ghost nodes. Existing stored records are not automatically merged or deleted. Added real decoder/ingest regressions and enabled them in CI.
 - Fixed node-popup copy/link/QR actions becoming unresponsive after live updates replace the popup content. Clicking a map marker now retains working actions without selecting the node through search again.
 - Updated FastAPI to `0.142.2`, Uvicorn to `0.54.0`, and the development HTTPX2 client to `2.13.1`. Retained the Python `3.14.7-slim` runtime.

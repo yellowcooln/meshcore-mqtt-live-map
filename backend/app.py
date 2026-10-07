@@ -2847,6 +2847,7 @@ async def broadcaster():
       points = event.get("points")
       used_hashes: List[str] = []
       point_ids: List[Optional[str]] = []
+      evidence_ids: List[Optional[str]] = []
 
       if not points:
         path_hashes = event.get("path_hashes") or []
@@ -2855,6 +2856,7 @@ async def broadcaster():
           event.get("origin_id"),
           event.get("receiver_id"),
           event.get("ts") or time.time(),
+          evidence_ids=evidence_ids,
         )
 
       if not points and route_mode == "fanout":
@@ -2866,6 +2868,7 @@ async def broadcaster():
           len(points) == 2
         ):
           point_ids = [event.get("origin_id"), event.get("receiver_id")]
+          evidence_ids = list(point_ids)
 
       # Fallback: if path hashes are missing/unknown, draw a direct link when possible.
       if not points:
@@ -2879,6 +2882,7 @@ async def broadcaster():
             len(points) == 2
           ):
             point_ids = [event.get("origin_id"), event.get("receiver_id")]
+            evidence_ids = list(point_ids)
 
       if not points:
         continue
@@ -2934,10 +2938,13 @@ async def broadcaster():
       routes[route_id] = route
 
       if point_ids and used_hashes:
-        _record_neighbors(point_ids, route["ts"])
-      _update_path_timestamps(point_ids, route["ts"])
+        _record_neighbors(evidence_ids, route["ts"])
+      _update_path_timestamps(evidence_ids, route["ts"])
 
-      history_updates, history_removed = _record_route_history(route)
+      # Keep guessed geometry without learning or persisting guessed peer IDs.
+      history_updates, history_removed = _record_route_history(
+        {**route, "point_ids": evidence_ids}
+      )
 
       payload = {"type": "route", "route": _route_payload(route)}
       await _broadcast_payloads([payload])
