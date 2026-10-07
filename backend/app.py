@@ -7,6 +7,7 @@ import os
 import html
 import time
 import subprocess
+import ssl
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from dataclasses import asdict
@@ -1055,12 +1056,13 @@ async def _lifespan(_app: FastAPI):
     mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
 
   if MQTT_TLS:
-    if MQTT_CA_CERT:
+    if MQTT_TLS_INSECURE:
+      mqtt_client.tls_set(cert_reqs=ssl.CERT_NONE)
+      mqtt_client.tls_insecure_set(True)
+    elif MQTT_CA_CERT:
       mqtt_client.tls_set(ca_certs=MQTT_CA_CERT)
     else:
       mqtt_client.tls_set()
-    if MQTT_TLS_INSECURE:
-      mqtt_client.tls_insecure_set(True)
 
   mqtt_client.on_connect = mqtt_on_connect
   mqtt_client.on_disconnect = mqtt_on_disconnect

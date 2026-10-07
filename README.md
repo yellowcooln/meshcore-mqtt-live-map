@@ -200,7 +200,7 @@ MQTT:
 - `MQTT_TRANSPORT` (`tcp` or `websockets`)
 - `MQTT_WS_PATH` (usually `/` or `/mqtt`)
 - `MQTT_TLS` (`true`)
-- `MQTT_TLS_INSECURE` (allow invalid TLS certs)
+- `MQTT_TLS_INSECURE` (default `false`; when `true`, disables certificate and hostname verification, allowing expired or self-signed certificates; ignores `MQTT_CA_CERT`. TLS remains encrypted, but the broker's identity is not authenticated. Prefer renewing the certificate or configuring a trusted CA.)
 - `MQTT_CA_CERT` (custom CA bundle path)
 - `MQTT_CLIENT_ID` (optional client id override)
 - `MQTT_TOPIC` (e.g. `meshcore/#` or `meshcore/#,other/topic/+` for multiple topics)
