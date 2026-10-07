@@ -6461,8 +6461,8 @@ function upsertDevice(d, trail) {
       autoPan: false,
       keepInView: false
     });
-    m.on('popupopen', (ev) => {
-      const root = ev?.popup?.getElement?.();
+    const bindPopupActions = () => {
+      const root = m.getPopup()?.getElement?.();
       if (!root) return;
       root.querySelectorAll('.popup-copy-trigger').forEach((btn) => {
         if (btn.dataset.boundClick === 'true') return;
@@ -6479,7 +6479,10 @@ function upsertDevice(d, trail) {
         btn.dataset.boundNodeLink = 'true';
         btn.addEventListener('click', copyNodeLink);
       });
-    });
+    };
+    m.on('popupopen', bindPopupActions);
+    // Live updates replace popup buttons without reopening the popup.
+    m.getPopup().on('contentupdate', bindPopupActions);
     m.__suppressClick = false;
     m.__longPressTimer = null;
     m.__longPressFired = false;

@@ -1,6 +1,8 @@
 # Versions
 
 ## v1.9.7 (08-30-2026)
+- Verify RF advert signatures before accepting node identities, names, coordinates, or route metadata. Reject malformed/signature-invalid packets before coordinate overrides or metadata updates, preventing corrupt adverts from creating ghost nodes. Existing stored records are not automatically merged or deleted. Added real decoder/ingest regressions and enabled them in CI.
+- Fixed node-popup copy/link/QR actions becoming unresponsive after live updates replace the popup content. Clicking a map marker now retains working actions without selecting the node through search again.
 - Updated FastAPI to `0.142.2`, Uvicorn to `0.54.0`, and the development HTTPX2 client to `2.13.1`. Retained the Python `3.14.7-slim` runtime.
 - Fixed `MQTT_TLS_INSECURE=true` so it disables certificate verification as well as hostname checking, allowing explicitly insecure TLS connections to brokers with expired or self-signed certificates. Verified TLS remains the default and still supports custom CA bundles. Added real expired-certificate TLS handshake regression tests.
 - Replaced the browser's CARTO Dark Matter raster layer with the keyless OpenFreeMap Dark vector style rendered through pinned MapLibre GL JS and MapLibre GL Leaflet releases. Dark mode is now available to every deployment without `CARTO_BASEMAP_KEY`, with OpenFreeMap, OpenMapTiles, and OpenStreetMap attribution shown in the map footer.

@@ -880,6 +880,19 @@ def _extract_device_role(obj: Any, topic: str) -> Optional[str]:
   return walk(obj)
 
 
+def _reject_invalid_packet(debug: Dict[str, Any], meta: Dict[str, Any]) -> bool:
+  if meta.get("invalid_packet") is not True:
+    return False
+  debug["invalid_packet"] = True
+  debug["result"] = "invalid_packet"
+  debug["decoder_meta"] = meta
+  # Envelope hints are not authoritative when its RF packet is rejected.
+  for key in ("decoded_pubkey", "origin_id", "device_name", "device_role",
+              "packet_hash", "packet_type"):
+    debug[key] = None
+  return True
+
+
 def _apply_meta_role(
   debug: Dict[str, Any], meta: Optional[Dict[str, Any]]
 ) -> None:
@@ -1068,9 +1081,22 @@ function syncKeyStore(channelSecrets) {
     : undefined;
 }
 
-function decodeHex(hex, channelSecrets) {
+async function decodeHex(hex, channelSecrets) {
   syncKeyStore(channelSecrets);
-  const decoded = MeshCorePacketDecoder.decode(hex, keyStore ? { keyStore } : undefined);
+  const decoded = await MeshCorePacketDecoder.decodeWithVerification(hex, keyStore ? { keyStore } : undefined);
+  const advert = pickAdvertPayload(decoded);
+  const isAdvert = decoded?.payloadType === 4 || advert !== null;
+  if (decoded?.isValid !== true || (isAdvert &&
+      (advert?.isValid !== true || advert?.signatureValid !== true))) {
+    // Fixed, bounded diagnostics only: decoder errors may contain raw input.
+    return {
+      ok: false,
+      invalid_packet: true,
+      error: isAdvert ? 'invalid_advert' : 'invalid_packet',
+      isValid: decoded?.isValid === true,
+      signatureValid: isAdvert ? advert?.signatureValid === true : null,
+    };
+  }
   const loc = pickLocation(decoded);
   const payloadDecoded = decoded?.payload?.decoded ?? decoded?.payload ?? null;
   const payloadRoot = decoded?.payload ?? null;
@@ -1090,6 +1116,8 @@ function decodeHex(hex, channelSecrets) {
   const pathLength = decoded?.pathLength ?? null;
   const out = {
     ok: true,
+    isValid: true,
+    signatureValid: isAdvert ? true : null,
     payloadType: decoded?.payloadType ?? null,
     routeType: decoded?.routeType ?? null,
     messageHash: decoded?.messageHash ?? null,
@@ -1113,26 +1141,27 @@ const rl = readline.createInterface({
   crlfDelay: Infinity,
 });
 
-rl.on('line', (line) => {
+// Await each request before consuming the next: Python uses ordered readline.
+for await (const line of rl) {
   let request;
   try {
     request = JSON.parse(line);
   } catch (e) {
     process.stdout.write(JSON.stringify({ ok: false, error: 'invalid_request_json' }) + '\\n');
-    return;
+    continue;
   }
   try {
     const hex = typeof request?.hex === 'string' ? request.hex.trim() : '';
     if (!hex) {
       process.stdout.write(JSON.stringify({ ok: false, error: 'missing_hex' }) + '\\n');
-      return;
+      continue;
     }
     const channelSecrets = Array.isArray(request?.channelSecrets) ? request.channelSecrets : [];
-    process.stdout.write(JSON.stringify(decodeHex(hex, channelSecrets)) + '\\n');
+    process.stdout.write(JSON.stringify(await decodeHex(hex, channelSecrets)) + '\\n');
   } catch (e) {
-    process.stdout.write(JSON.stringify({ ok: false, error: String(e) }) + '\\n');
+    process.stdout.write(JSON.stringify({ ok: false, invalid_packet: true, error: 'packet_decode_error' }) + '\\n');
   }
-});
+}
 """
 
   try:
@@ -1392,6 +1421,27 @@ def _find_packet_blob(
   return (None, None, None)
 
 
+def _find_rf_packet_blob(obj: Any) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+  """Find explicit RF fields without treating observer public keys as packets."""
+  if isinstance(obj, dict):
+    for key, value in obj.items():
+      if key in LIKELY_PACKET_KEYS:
+        found = _find_packet_blob(value, f"root.{key}")
+        if found[0]:
+          return found
+    for value in obj.values():
+      if isinstance(value, (dict, list)):
+        found = _find_rf_packet_blob(value)
+        if found[0]:
+          return found
+  elif isinstance(obj, list):
+    for value in obj:
+      found = _find_rf_packet_blob(value)
+      if found[0]:
+        return found
+  return (None, None, None)
+
+
 def _extract_device_id(
   obj: Any, topic: str, decoded_pubkey: Optional[str]
 ) -> str:
@@ -1455,7 +1505,16 @@ def _try_parse_payload(
       debug["parse_error"] = str(exc)
 
   if obj is not None:
-    found = _find_lat_lon_in_json(obj)
+    packet_hex, packet_where, packet_hint = _find_rf_packet_blob(obj)
+    packet_decoded = None
+    if packet_hex:
+      packet_decoded = _decode_meshcore_hex(packet_hex)
+      debug["found_path"] = packet_where
+      debug["found_hint"] = packet_hint
+      if _reject_invalid_packet(debug, packet_decoded[4]):
+        return (None, debug)
+    # Explicit RF envelopes must use verified RF metadata, not coordinate hints.
+    found = None if packet_hex else _find_lat_lon_in_json(obj)
     if found:
       if not _direct_coords_allowed(topic, obj):
         debug["result"] = "direct_blocked"
@@ -1485,7 +1544,7 @@ def _try_parse_payload(
         debug,
       )
 
-    for s in _strings_from_json(obj):
+    for s in ([] if packet_hex else _strings_from_json(obj)):
       got = _find_lat_lon_in_text(s)
       if got:
         if not _direct_coords_allowed(topic, obj):
@@ -1532,11 +1591,21 @@ def _try_parse_payload(
             debug,
           )
 
-    hex_str, where, hint = _find_packet_blob(obj)
+    # Status identities (including JWT public keys) are not RF packet blobs.
+    if topic.endswith("/status") and not packet_hex:
+      debug["result"] = "json_no_packet_blob"
+      return (None, debug)
+
+    hex_str, where, hint = ((packet_hex, packet_where, packet_hint)
+                            if packet_hex else _find_packet_blob(obj))
     debug["found_path"] = where
     debug["found_hint"] = hint
     if hex_str:
-      lat, lon, decoded_pubkey, name, meta = _decode_meshcore_hex(hex_str)
+      lat, lon, decoded_pubkey, name, meta = (
+        packet_decoded if packet_decoded is not None else _decode_meshcore_hex(hex_str)
+      )
+      if _reject_invalid_packet(debug, meta):
+        return (None, debug)
       debug["decoded_pubkey"] = decoded_pubkey
       debug["decoder_meta"] = meta
       _apply_meta_role(debug, meta)
@@ -1589,6 +1658,8 @@ def _try_parse_payload(
       debug["found_path"] = "payload"
       debug["found_hint"] = "hex"
       lat, lon, decoded_pubkey, name, meta = _decode_meshcore_hex(text.strip())
+      if _reject_invalid_packet(debug, meta):
+        return (None, debug)
       debug["decoded_pubkey"] = decoded_pubkey
       debug["decoder_meta"] = meta
       _apply_meta_role(debug, meta)
@@ -1615,6 +1686,8 @@ def _try_parse_payload(
       debug["found_path"] = "payload"
       debug["found_hint"] = "base64"
       lat, lon, decoded_pubkey, name, meta = _decode_meshcore_hex(b64hex)
+      if _reject_invalid_packet(debug, meta):
+        return (None, debug)
       debug["decoded_pubkey"] = decoded_pubkey
       debug["decoder_meta"] = meta
       _apply_meta_role(debug, meta)
@@ -1642,6 +1715,8 @@ def _try_parse_payload(
     lat, lon, decoded_pubkey, name, meta = _decode_meshcore_hex(
       payload_bytes.hex()
     )
+    if _reject_invalid_packet(debug, meta):
+      return (None, debug)
     debug["decoded_pubkey"] = decoded_pubkey
     debug["decoder_meta"] = meta
     _apply_meta_role(debug, meta)

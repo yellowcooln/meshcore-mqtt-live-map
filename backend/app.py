@@ -2404,6 +2404,17 @@ def _handle_mqtt_message(client, userdata, msg: mqtt.MQTTMessage):
       loop.call_soon_threadsafe(update_queue.put_nowait, mqtt_presence_event)
 
   parsed, debug = _try_parse_payload(msg.topic, msg.payload)
+  if debug.get("invalid_packet") is True:
+    # Presence above belongs to the topic observer, never the rejected sender.
+    # Do not retain/log packet previews or trust envelope metadata on this path.
+    result_counts["invalid_packet"] = result_counts.get("invalid_packet", 0) + 1
+    stats["unparsed_total"] += 1
+    debug_last.append({
+      "ts": time.time(),
+      "result": "invalid_packet",
+      "decoder_meta": debug.get("decoder_meta"),
+    })
+    return
   device_id_hint = parsed.get("device_id") if parsed else None
   # Also try to get device_id from topic if parsing failed or no device_id in parsed data
   topic_device_id = _device_id_from_topic(msg.topic)
