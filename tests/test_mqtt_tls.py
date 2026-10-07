@@ -42,9 +42,23 @@ def expired_cert(tmp_path_factory):
     "openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes",
     "-keyout", str(key), "-out", str(csr), "-subj", "/CN=localhost",
   ], check=True, capture_output=True)
+  # Explicit historical dates work across OpenSSL releases; newer versions
+  # reject negative -days values used by the old test fixture.
+  (directory / "index.txt").write_text("")
+  (directory / "serial").write_text("01\n")
+  config = directory / "ca.cnf"
+  config.write_text(
+    "[ca]\ndefault_ca = test\n[test]\n"
+    f"database = {directory / 'index.txt'}\n"
+    f"serial = {directory / 'serial'}\n"
+    f"new_certs_dir = {directory}\n"
+    "default_md = sha256\npolicy = policy\n"
+    "[policy]\ncommonName = supplied\n"
+  )
   subprocess.run([
-    "openssl", "x509", "-req", "-in", str(csr), "-signkey", str(key),
-    "-out", str(cert), "-days", "-1",
+    "openssl", "ca", "-selfsign", "-batch", "-config", str(config),
+    "-in", str(csr), "-keyfile", str(key), "-out", str(cert),
+    "-startdate", "20000101000000Z", "-enddate", "20000102000000Z",
   ], check=True, capture_output=True)
   return cert, key
 
