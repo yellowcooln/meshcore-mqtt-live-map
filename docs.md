@@ -1,13 +1,13 @@
 # Mesh Map Live: Implementation Notes
 
 This document captures the state of the project and the key changes made so far, so a new Codex session can pick up without losing context.
-Current version: `1.9.6` (see `VERSIONS.md`).
+Current version: `1.9.7` (see `VERSIONS.md`).
 
 ## Overview
 This project renders live MeshCore traffic on a Leaflet + OpenStreetMap map. A FastAPI backend subscribes to MQTT (WSS/TLS or TCP), decodes MeshCore packets using the official [`@michaelhart/meshcore-decoder`](https://www.npmjs.com/package/@michaelhart/meshcore-decoder), and broadcasts device updates and routes over WebSockets to the frontend. Core logic is split into config/state/decoder/LOS/history modules so changes are localized. The UI includes heatmap, LOS tools, map mode toggles, and a 24-hour route history layer.
 
 ## Versioning
-- `VERSION.txt` holds the current version string (`1.9.6`).
+- `VERSION.txt` holds the current version string (`1.9.7`).
 - `VERSIONS.md` is an append-only changelog by version.
 
 ## Key Paths
@@ -124,7 +124,8 @@ This project renders live MeshCore traffic on a Leaflet + OpenStreetMap map. A F
 - Radius filter: `MAP_RADIUS_KM=0` disables filtering; `.env.example` uses `241.4` km (150mi). `MAP_RADIUS_SHOW=true` draws a debug circle.
 - Default base layer can be set with `MAP_DEFAULT_LAYER` (`light`, `dark`, `topo`, or `satellite`; localStorage overrides).
 - The `satellite` layer uses open Sentinel-2 cloudless imagery from EOX with OpenStreetMap/CARTO labels and borders overlaid.
-- As of August 26, 2026, CARTO requires an API key for its Dark Matter tiles. CARTO offers a free key covering up to 5 million tile requests per calendar month. Set `CARTO_BASEMAP_KEY` to enable dark mode and CARTO satellite labels until a suitable replacement is found. CARTO's documented Leaflet integration intentionally exposes this project key in browser tile requests, so keep it out of Git, list the deployment domains when requesting it, and do not reuse it for unrelated projects. Without it, the dark-mode control is hidden and satellite imagery loads without the CARTO label overlay.
+- The `dark` layer uses the keyless OpenFreeMap Dark vector style through MapLibre GL Leaflet and displays the required OpenFreeMap, OpenMapTiles, and OpenStreetMap attribution.
+- `CARTO_BASEMAP_KEY` is optional and is used only for CARTO satellite labels and server-generated dark social preview tiles. Without it, satellite imagery remains available without labels and dark previews fall back to OpenStreetMap.
 - Units toggle (km/mi) is site-wide; default from `DISTANCE_UNITS` and stored in localStorage.
 - Heat toggle defaults from `HEAT_DEFAULT_ON` on first load before any browser-local override exists.
 - Node size slider defaults from `NODE_MARKER_RADIUS` and persists in localStorage.

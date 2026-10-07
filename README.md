@@ -1,6 +1,6 @@
 # Mesh Live Map
 
-Version: `1.9.6` (see [VERSIONS.md](VERSIONS.md))
+Version: `1.9.7` (see [VERSIONS.md](VERSIONS.md))
 
 Live MeshCore traffic map that renders nodes, routes, and activity in real time on a Leaflet map. The backend subscribes to MQTT over WebSockets+TLS or TCP, decodes MeshCore packets with the official [`@michaelhart/meshcore-decoder`](https://www.npmjs.com/package/@michaelhart/meshcore-decoder), and streams updates to the browser via WebSockets.
 
@@ -200,7 +200,7 @@ MQTT:
 - `MQTT_TRANSPORT` (`tcp` or `websockets`)
 - `MQTT_WS_PATH` (usually `/` or `/mqtt`)
 - `MQTT_TLS` (`true`)
-- `MQTT_TLS_INSECURE` (allow invalid TLS certs)
+- `MQTT_TLS_INSECURE` (default `false`; when `true`, disables certificate and hostname verification, allowing expired or self-signed certificates; ignores `MQTT_CA_CERT`. TLS remains encrypted, but the broker's identity is not authenticated. Prefer renewing the certificate or configuring a trusted CA.)
 - `MQTT_CA_CERT` (custom CA bundle path)
 - `MQTT_CLIENT_ID` (optional client id override)
 - `MQTT_TOPIC` (e.g. `meshcore/#` or `meshcore/#,other/topic/+` for multiple topics)
@@ -286,7 +286,8 @@ Map + LOS:
 - `MAP_START_LAT` / `MAP_START_LON` / `MAP_START_ZOOM` (default map view)
 - `MAP_DEFAULT_LAYER` (`light`, `dark`, `topo`, or `satellite`; localStorage overrides)
   - `satellite` uses open Sentinel-2 cloudless imagery from EOX with OpenStreetMap/CARTO labels and borders overlaid.
-- As of August 26, 2026, CARTO requires an API key for its Dark Matter tiles. CARTO offers a free key covering up to 5 million tile requests per calendar month. Set `CARTO_BASEMAP_KEY` to enable dark mode and CARTO satellite labels until a suitable replacement is found. CARTO's documented Leaflet integration exposes this project key in browser tile requests, so keep it out of Git, list the deployment domains when requesting it, and do not reuse it for unrelated projects. Without a key, the dark-mode control is hidden and satellite imagery remains available without the CARTO label overlay. See [Get and configure a CARTO API key for dark mode](howto.md#get-and-configure-a-carto-api-key-for-dark-mode).
+- The `dark` layer uses the keyless OpenFreeMap Dark vector style through MapLibre GL Leaflet, with OpenFreeMap, OpenMapTiles, and OpenStreetMap attribution. No API key is required.
+- `CARTO_BASEMAP_KEY` is optional and is used only for CARTO satellite labels and server-generated dark social preview tiles. Keep it per-project and out of Git. Without a key, satellite imagery remains available without the CARTO label overlay and dark previews fall back to OpenStreetMap. See [Configure an optional CARTO key](howto.md#optional-carto-key-for-satellite-labels-and-dark-previews).
 - `MAP_RADIUS_KM` (`0` disables radius filtering; `.env.example` uses `241.4` km ≈ 150mi)
 - `MAP_RADIUS_SHOW` (`true` draws the radius debug circle)
 - `LOS_ELEVATION_URL` (elevation API for LOS tool)

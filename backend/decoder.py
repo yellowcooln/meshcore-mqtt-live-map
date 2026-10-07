@@ -469,6 +469,7 @@ def _choose_neighbor_device(
   ref_lat: float,
   ref_lon: float,
   ts: float,
+  trusted_only: bool = False,
 ) -> Optional[str]:
   edges = neighbor_edges.get(prev_id) if prev_id else None
   if not edges:
@@ -478,6 +479,10 @@ def _choose_neighbor_device(
   for device_id in candidates:
     edge = edges.get(device_id)
     if not edge:
+      continue
+    # Only explicit overrides have independent provenance. Legacy observed
+    # edges (including an unproven auto flag) may have come from route guesses.
+    if trusted_only and not edge.get("manual"):
       continue
     state = devices.get(device_id)
     if not state:
@@ -520,7 +525,15 @@ def _route_points_from_hashes(
   origin_id: Optional[str],
   receiver_id: Optional[str],
   ts: float,
+  evidence_ids: Optional[List[Optional[str]]] = None,
 ) -> Tuple[Optional[List[List[float]]], List[str], List[Optional[str]]]:
+  """Resolve display geometry; optionally return aligned authoritative IDs.
+
+  Collided-prefix guesses remain drawable, but are not identity evidence.
+  None entries retain gaps so consumers cannot learn adjacency across guesses.
+  """
+  if evidence_ids is not None:
+    evidence_ids.clear()
   normalized: List[str] = []
   for raw in path_hashes:
     key = _normalize_node_hash(raw)
@@ -546,12 +559,14 @@ def _route_points_from_hashes(
   points: List[List[float]] = []
   used_hashes: List[str] = []
   point_ids: List[Optional[str]] = []
+  trusted_ids: List[Optional[str]] = []
 
   # We need a reference point to start "walking" the path spatially.
   # Best bet is the origin, if known.
   current_lat = None
   current_lon = None
   current_id: Optional[str] = None
+  current_trusted = False
 
   if origin_id:
     origin_state = devices.get(origin_id)
@@ -562,6 +577,7 @@ def _route_points_from_hashes(
         current_lat = float(origin_state.lat)
         current_lon = float(origin_state.lon)
         current_id = origin_id
+        current_trusted = True
       except (TypeError, ValueError):
         pass
 
@@ -569,6 +585,7 @@ def _route_points_from_hashes(
   for key in normalized:
     device_id = None
     candidates = node_hash_candidates.get(key) or []
+    trusted = len(candidates) == 1
     ambiguous_single_byte = (
       len(key) == 2 and len(candidates) > 1 and
       not ROUTE_ALLOW_AMBIGUOUS_ONE_BYTE_FALLBACK
@@ -576,8 +593,16 @@ def _route_points_from_hashes(
 
     if current_id and current_lat is not None and current_lon is not None:
       if len(candidates) > 1:
+        # A configured neighbor can disambiguate only from a known identity,
+        # never from a previous spatial guess. Prefer it before proximity.
+        if current_trusted:
+          device_id = _choose_neighbor_device(
+            current_id, candidates, current_lat, current_lon, ts,
+            trusted_only=True,
+          )
+          trusted = bool(device_id)
         # For the first hop, prefer the closest candidate to the origin.
-        if not points and not ambiguous_single_byte:
+        if not device_id and not points and not ambiguous_single_byte:
           device_id = _choose_closest_device(key, current_lat, current_lon, ts)
         if not device_id:
           neighbor_id = _choose_neighbor_device(
@@ -589,13 +614,14 @@ def _route_points_from_hashes(
           )
           if neighbor_id:
             device_id = neighbor_id
-            edge = neighbor_edges.get(current_id, {}).get(neighbor_id, {})
+        if device_id and ROUTE_NEIGHBOR_DEBUG:
+          edge = neighbor_edges.get(current_id, {}).get(device_id, {})
+          if edge:
             manual = " manual" if edge.get("manual") else ""
-            if ROUTE_NEIGHBOR_DEBUG:
-              print(
-                f"[route] neighbor pick{manual} hash={key} "
-                f"{current_id[:8]} -> {neighbor_id[:8]}"
-              )
+            print(
+              f"[route] neighbor pick{manual} hash={key} "
+              f"{current_id[:8]} -> {device_id[:8]}"
+            )
 
     # If we have a location fix, try to find the "closest" candidate for this hash
     if (
@@ -639,6 +665,7 @@ def _route_points_from_hashes(
     current_lat = p_lat
     current_lon = p_lon
     current_id = device_id
+    current_trusted = trusted
 
     if points and point == points[-1]:
       continue
@@ -646,6 +673,7 @@ def _route_points_from_hashes(
     points.append(point)
     used_hashes.append(key)
     point_ids.append(device_id)
+    trusted_ids.append(device_id if trusted else None)
 
   # Prepend origin if missing
   origin_point = None
@@ -665,8 +693,10 @@ def _route_points_from_hashes(
           if not points or points[0] != origin_point:
             points.insert(0, origin_point)
             point_ids.insert(0, origin_id)
+            trusted_ids.insert(0, origin_id)
           elif point_ids:
             point_ids[0] = origin_id
+            trusted_ids[0] = origin_id
         except (TypeError, ValueError):
           pass
 
@@ -695,10 +725,15 @@ def _route_points_from_hashes(
             if dist <= (ROUTE_MAX_HOP_DISTANCE * 1000.0):
               points.append(receiver_point)
               point_ids.append(receiver_id)
+              trusted_ids.append(receiver_id)
           elif point_ids:
             point_ids[-1] = receiver_id
+            trusted_ids[-1] = receiver_id
         except (TypeError, ValueError):
           pass
+
+  if evidence_ids is not None:
+    evidence_ids.extend(trusted_ids)
 
   if len(points) < 2:
     return None, used_hashes, point_ids
@@ -878,6 +913,19 @@ def _extract_device_role(obj: Any, topic: str) -> Optional[str]:
     return None
 
   return walk(obj)
+
+
+def _reject_invalid_packet(debug: Dict[str, Any], meta: Dict[str, Any]) -> bool:
+  if meta.get("invalid_packet") is not True:
+    return False
+  debug["invalid_packet"] = True
+  debug["result"] = "invalid_packet"
+  debug["decoder_meta"] = meta
+  # Envelope hints are not authoritative when its RF packet is rejected.
+  for key in ("decoded_pubkey", "origin_id", "device_name", "device_role",
+              "packet_hash", "packet_type"):
+    debug[key] = None
+  return True
 
 
 def _apply_meta_role(
@@ -1068,9 +1116,22 @@ function syncKeyStore(channelSecrets) {
     : undefined;
 }
 
-function decodeHex(hex, channelSecrets) {
+async function decodeHex(hex, channelSecrets) {
   syncKeyStore(channelSecrets);
-  const decoded = MeshCorePacketDecoder.decode(hex, keyStore ? { keyStore } : undefined);
+  const decoded = await MeshCorePacketDecoder.decodeWithVerification(hex, keyStore ? { keyStore } : undefined);
+  const advert = pickAdvertPayload(decoded);
+  const isAdvert = decoded?.payloadType === 4 || advert !== null;
+  if (decoded?.isValid !== true || (isAdvert &&
+      (advert?.isValid !== true || advert?.signatureValid !== true))) {
+    // Fixed, bounded diagnostics only: decoder errors may contain raw input.
+    return {
+      ok: false,
+      invalid_packet: true,
+      error: isAdvert ? 'invalid_advert' : 'invalid_packet',
+      isValid: decoded?.isValid === true,
+      signatureValid: isAdvert ? advert?.signatureValid === true : null,
+    };
+  }
   const loc = pickLocation(decoded);
   const payloadDecoded = decoded?.payload?.decoded ?? decoded?.payload ?? null;
   const payloadRoot = decoded?.payload ?? null;
@@ -1090,6 +1151,8 @@ function decodeHex(hex, channelSecrets) {
   const pathLength = decoded?.pathLength ?? null;
   const out = {
     ok: true,
+    isValid: true,
+    signatureValid: isAdvert ? true : null,
     payloadType: decoded?.payloadType ?? null,
     routeType: decoded?.routeType ?? null,
     messageHash: decoded?.messageHash ?? null,
@@ -1113,26 +1176,27 @@ const rl = readline.createInterface({
   crlfDelay: Infinity,
 });
 
-rl.on('line', (line) => {
+// Await each request before consuming the next: Python uses ordered readline.
+for await (const line of rl) {
   let request;
   try {
     request = JSON.parse(line);
   } catch (e) {
     process.stdout.write(JSON.stringify({ ok: false, error: 'invalid_request_json' }) + '\\n');
-    return;
+    continue;
   }
   try {
     const hex = typeof request?.hex === 'string' ? request.hex.trim() : '';
     if (!hex) {
       process.stdout.write(JSON.stringify({ ok: false, error: 'missing_hex' }) + '\\n');
-      return;
+      continue;
     }
     const channelSecrets = Array.isArray(request?.channelSecrets) ? request.channelSecrets : [];
-    process.stdout.write(JSON.stringify(decodeHex(hex, channelSecrets)) + '\\n');
+    process.stdout.write(JSON.stringify(await decodeHex(hex, channelSecrets)) + '\\n');
   } catch (e) {
-    process.stdout.write(JSON.stringify({ ok: false, error: String(e) }) + '\\n');
+    process.stdout.write(JSON.stringify({ ok: false, invalid_packet: true, error: 'packet_decode_error' }) + '\\n');
   }
-});
+}
 """
 
   try:
@@ -1392,6 +1456,27 @@ def _find_packet_blob(
   return (None, None, None)
 
 
+def _find_rf_packet_blob(obj: Any) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+  """Find explicit RF fields without treating observer public keys as packets."""
+  if isinstance(obj, dict):
+    for key, value in obj.items():
+      if key in LIKELY_PACKET_KEYS:
+        found = _find_packet_blob(value, f"root.{key}")
+        if found[0]:
+          return found
+    for value in obj.values():
+      if isinstance(value, (dict, list)):
+        found = _find_rf_packet_blob(value)
+        if found[0]:
+          return found
+  elif isinstance(obj, list):
+    for value in obj:
+      found = _find_rf_packet_blob(value)
+      if found[0]:
+        return found
+  return (None, None, None)
+
+
 def _extract_device_id(
   obj: Any, topic: str, decoded_pubkey: Optional[str]
 ) -> str:
@@ -1455,7 +1540,16 @@ def _try_parse_payload(
       debug["parse_error"] = str(exc)
 
   if obj is not None:
-    found = _find_lat_lon_in_json(obj)
+    packet_hex, packet_where, packet_hint = _find_rf_packet_blob(obj)
+    packet_decoded = None
+    if packet_hex:
+      packet_decoded = _decode_meshcore_hex(packet_hex)
+      debug["found_path"] = packet_where
+      debug["found_hint"] = packet_hint
+      if _reject_invalid_packet(debug, packet_decoded[4]):
+        return (None, debug)
+    # Explicit RF envelopes must use verified RF metadata, not coordinate hints.
+    found = None if packet_hex else _find_lat_lon_in_json(obj)
     if found:
       if not _direct_coords_allowed(topic, obj):
         debug["result"] = "direct_blocked"
@@ -1485,7 +1579,7 @@ def _try_parse_payload(
         debug,
       )
 
-    for s in _strings_from_json(obj):
+    for s in ([] if packet_hex else _strings_from_json(obj)):
       got = _find_lat_lon_in_text(s)
       if got:
         if not _direct_coords_allowed(topic, obj):
@@ -1532,11 +1626,21 @@ def _try_parse_payload(
             debug,
           )
 
-    hex_str, where, hint = _find_packet_blob(obj)
+    # Status identities (including JWT public keys) are not RF packet blobs.
+    if topic.endswith("/status") and not packet_hex:
+      debug["result"] = "json_no_packet_blob"
+      return (None, debug)
+
+    hex_str, where, hint = ((packet_hex, packet_where, packet_hint)
+                            if packet_hex else _find_packet_blob(obj))
     debug["found_path"] = where
     debug["found_hint"] = hint
     if hex_str:
-      lat, lon, decoded_pubkey, name, meta = _decode_meshcore_hex(hex_str)
+      lat, lon, decoded_pubkey, name, meta = (
+        packet_decoded if packet_decoded is not None else _decode_meshcore_hex(hex_str)
+      )
+      if _reject_invalid_packet(debug, meta):
+        return (None, debug)
       debug["decoded_pubkey"] = decoded_pubkey
       debug["decoder_meta"] = meta
       _apply_meta_role(debug, meta)
@@ -1589,6 +1693,8 @@ def _try_parse_payload(
       debug["found_path"] = "payload"
       debug["found_hint"] = "hex"
       lat, lon, decoded_pubkey, name, meta = _decode_meshcore_hex(text.strip())
+      if _reject_invalid_packet(debug, meta):
+        return (None, debug)
       debug["decoded_pubkey"] = decoded_pubkey
       debug["decoder_meta"] = meta
       _apply_meta_role(debug, meta)
@@ -1615,6 +1721,8 @@ def _try_parse_payload(
       debug["found_path"] = "payload"
       debug["found_hint"] = "base64"
       lat, lon, decoded_pubkey, name, meta = _decode_meshcore_hex(b64hex)
+      if _reject_invalid_packet(debug, meta):
+        return (None, debug)
       debug["decoded_pubkey"] = decoded_pubkey
       debug["decoder_meta"] = meta
       _apply_meta_role(debug, meta)
@@ -1642,6 +1750,8 @@ def _try_parse_payload(
     lat, lon, decoded_pubkey, name, meta = _decode_meshcore_hex(
       payload_bytes.hex()
     )
+    if _reject_invalid_packet(debug, meta):
+      return (None, debug)
     debug["decoded_pubkey"] = decoded_pubkey
     debug["decoder_meta"] = meta
     _apply_meta_role(debug, meta)

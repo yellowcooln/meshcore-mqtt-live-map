@@ -40,12 +40,12 @@ If Turnstile protection is enabled, the deployment may use an authentication coo
 
 A deployment may contact third-party services, including:
 
-- Map tile providers such as OpenStreetMap, CARTO, OpenTopoMap, and EOX Sentinel-2 cloudless imagery
+- Map providers such as OpenStreetMap, OpenFreeMap/OpenMapTiles, CARTO, OpenTopoMap, and EOX Sentinel-2 cloudless imagery
 - Cloudflare Turnstile when production protection is enabled
 - MeshMapper coverage/wardriving services when coverage features are enabled; MeshMapper has its own privacy policy at https://wiki.meshmapper.net/privacy/
 - Optional weather, radar, coverage, elevation, packet-analyzer, or CoreScope services when configured by the operator
 
-Those services may receive normal browser request information such as IP address, user agent, referrer, and requested tile/API URL. When CARTO basemaps are enabled, its per-project key is included in browser tile-request URLs as required by CARTO's documented Leaflet integration; operators must not commit or reuse that key for unrelated projects.
+Those services may receive normal browser request information such as IP address, user agent, referrer, and requested tile/API URL. The keyless Dark map requests OpenFreeMap vector tiles, styles, fonts, and sprites. When optional CARTO satellite labels are enabled, its per-project key is included in browser tile-request URLs as required by CARTO's documented Leaflet integration; operators must not commit or reuse that key for unrelated projects.
 
 ## Sale or sharing of personal information
 
