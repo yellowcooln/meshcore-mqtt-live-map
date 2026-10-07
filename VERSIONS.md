@@ -1,6 +1,7 @@
 # Versions
 
 ## v1.9.7 (08-30-2026)
+- Updated FastAPI to `0.142.2`, Uvicorn to `0.54.0`, and the development HTTPX2 client to `2.13.1`. Retained the Python `3.14.7-slim` runtime.
 - Fixed `MQTT_TLS_INSECURE=true` so it disables certificate verification as well as hostname checking, allowing explicitly insecure TLS connections to brokers with expired or self-signed certificates. Verified TLS remains the default and still supports custom CA bundles. Added real expired-certificate TLS handshake regression tests.
 - Replaced the browser's CARTO Dark Matter raster layer with the keyless OpenFreeMap Dark vector style rendered through pinned MapLibre GL JS and MapLibre GL Leaflet releases. Dark mode is now available to every deployment without `CARTO_BASEMAP_KEY`, with OpenFreeMap, OpenMapTiles, and OpenStreetMap attribution shown in the map footer.
 - Kept `CARTO_BASEMAP_KEY` as an optional integration for CARTO satellite labels and server-generated dark social preview tiles; without a key, satellite imagery remains available without labels and dark previews continue to fall back to OpenStreetMap.
