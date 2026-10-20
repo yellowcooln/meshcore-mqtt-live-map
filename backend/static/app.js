@@ -7014,7 +7014,19 @@ function addHeatPoints(points, tsSeconds, payloadType) {
   points.forEach(p => {
     heatPoints.push({ lat: p[0], lon: p[1], ts, weight: 0.7 });
   });
-  refreshHeatLayer();
+  scheduleHeatRefresh();
+}
+
+let heatRefreshTimer = null;
+
+// Each route adds heat points; redrawing the whole layer per route made a
+// burst of route messages redraw it hundreds of times in one frame.
+function scheduleHeatRefresh() {
+  if (heatRefreshTimer) return;
+  heatRefreshTimer = setTimeout(() => {
+    heatRefreshTimer = null;
+    refreshHeatLayer();
+  }, 2000);
 }
 
 function seedHeat(items) {
@@ -7464,10 +7476,20 @@ async function initialSnapshot() {
 }
 
 const pendingWsMessages = [];
+const WS_FLUSH_FALLBACK_MS = 1000;
+const WS_HIDDEN_DISCONNECT_MS = 60000;
 let wsFlushScheduled = false;
+let wsFlushTimer = null;
+let ws = null;
+let wsHiddenTimer = null;
+let wsPausedForHidden = false;
 
 function flushQueuedWsMessages() {
   wsFlushScheduled = false;
+  if (wsFlushTimer) {
+    clearTimeout(wsFlushTimer);
+    wsFlushTimer = null;
+  }
   if (!pendingWsMessages.length) return;
   const batch = pendingWsMessages.splice(0, pendingWsMessages.length);
   deferStats = true;
@@ -7485,8 +7507,44 @@ function queueRealtimeMessage(msg) {
   pendingWsMessages.push(msg);
   if (wsFlushScheduled) return;
   wsFlushScheduled = true;
+  // Browsers stop animation frames for hidden, minimized or covered windows,
+  // so without the timer the queue grew until the tab was shown again and
+  // then ran hours of messages in a single frame.
   window.requestAnimationFrame(flushQueuedWsMessages);
+  wsFlushTimer = setTimeout(flushQueuedWsMessages, WS_FLUSH_FALLBACK_MS);
 }
+
+// Nobody sees a hidden tab, so after a minute hidden drop the socket rather
+// than process updates all night. The server sends a full snapshot on
+// connect, so reconnecting when the tab is shown catches the map up.
+function pauseWsWhileHidden() {
+  wsHiddenTimer = null;
+  if (!document.hidden) return;
+  wsPausedForHidden = true;
+  pendingWsMessages.length = 0;
+  if (ws) {
+    const socket = ws;
+    ws = null;
+    socket.close();
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (!wsHiddenTimer) {
+      wsHiddenTimer = setTimeout(pauseWsWhileHidden, WS_HIDDEN_DISCONNECT_MS);
+    }
+    return;
+  }
+  if (wsHiddenTimer) {
+    clearTimeout(wsHiddenTimer);
+    wsHiddenTimer = null;
+  }
+  if (wsPausedForHidden) {
+    wsPausedForHidden = false;
+    connectWS();
+  }
+});
 
 function handleRealtimeMessage(msg) {
   if (msg.type === "update") {
@@ -7556,17 +7614,22 @@ function handleRealtimeMessage(msg) {
 }
 
 function connectWS() {
+  if (wsPausedForHidden || ws) return;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const wsSuffix = (prodMode && apiToken) ? `?token=${encodeURIComponent(apiToken)}` : '';
-  const ws = new WebSocket(`${proto}://${location.host}${apiPath('/ws')}${wsSuffix}`);
+  const socket = new WebSocket(`${proto}://${location.host}${apiPath('/ws')}${wsSuffix}`);
+  ws = socket;
 
-  ws.onopen = () => console.log("ws connected");
-  ws.onclose = () => {
+  socket.onopen = () => console.log("ws connected");
+  socket.onclose = () => {
+    if (ws !== socket) return;
+    ws = null;
     console.log("ws disconnected, retrying...");
     setTimeout(connectWS, 1500);
   };
 
-  ws.onmessage = (ev) => {
+  socket.onmessage = (ev) => {
+    if (ws !== socket) return;
     const msg = JSON.parse(ev.data);
 
     if (msg.type === "snapshot") {
@@ -7574,7 +7637,10 @@ function connectWS() {
       setServerTimeOffset(msg.server_time);
       deferStats = true;
       try {
-        for (const [id, d] of Object.entries(msg.devices || {})) {
+        const snapDevices = msg.devices || {};
+        const goneIds = Array.from(deviceData.keys()).filter(id => !(id in snapDevices));
+        if (goneIds.length) removeDevices(goneIds);
+        for (const [id, d] of Object.entries(snapDevices)) {
           const trail = msg.trails ? msg.trails[id] : null;
           upsertDevice(d, trail);
         }
@@ -7588,6 +7654,8 @@ function connectWS() {
         }
         if (Array.isArray(msg.history_edges)) {
           if (routeHistoryEnabled) {
+            clearHistoryLayer();
+            historyCache.clear();
             msg.history_edges.forEach(edge => upsertHistoryEdge(edge));
           }
         }
