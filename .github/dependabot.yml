@@ -20,6 +20,10 @@ updates:
       interval: "weekly"
     target-branch: "dev"
     open-pull-requests-limit: 5
+    ignore:
+      # Review future Node LTS-major migrations explicitly; keep patches/minors.
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
