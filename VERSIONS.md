@@ -1,5 +1,12 @@
 # Versions
 
+## v1.9.8 (10-24-2026)
+- Integrated dependency PRs #110–#114, retaining both Pillow proposal heads in Git history. Updated FastAPI to `0.162.0`, Pillow to `13.0.0`, and development HTTPX2 to `2.16.0`.
+- Migrated the Docker runtime to Python `3.15.1-slim` and official Node `24.22.1` on Debian trixie, refreshed tzdata, and retained npm 11 only in the build stage. The real packet decoder remains `0.3.0` with its upstream-owned transitive major constraints unchanged.
+- Replaced vulnerable MapLibre 5.6 with `6.15.0`: lockfile-pinned, same-origin ESM/shared/worker assets and the existing Leaflet bridge, with ordered boot, WebGL2 detection, safe raster fallback, required attribution, explicit same-origin worker policy, and a refreshed PWA cache. Preserved the map UI and existing layers/tools. Pinned Leaflet Heat `0.2.0` with verified SRI.
+- CI now builds and tests the actual Python 3.15 / Node 24 production image instead of a separate Python 3.12 environment. Added executable renderer boot/failure regressions and npm dependency tracking.
+- Python 3.15 currently builds PyYAML `6.0.3` without LibYAML because no cp315 wheel is available; this does not change the app's YAML API use. Architecture-specific runtime verification remains necessary before publication.
+
 ## v1.9.7 (08-30-2026)
 - Fixed HTTP and new WebSocket connections stalling when packet processing was backlogged and no map clients were connected. The broadcaster now yields between events without discarding queued updates or disabling history.
 - Fixed collided path prefixes keeping retired nodes alive. Heuristic route geometry remains visible, but ambiguous hop guesses no longer refresh node retention or teach neighbor/peer identities. Explicit neighbor overrides take precedence over proximity, while unique prefixes and full-ID endpoints retain normal activity tracking. Existing path timestamps expire under the configured retention policy.

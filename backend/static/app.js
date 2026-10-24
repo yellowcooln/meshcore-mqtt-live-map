@@ -239,10 +239,17 @@ const openFreeMapAttribution = (
   '<a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">&copy; OpenMapTiles</a> ' +
   'Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
 );
-const darkTiles = L.maplibreGL({
-  style: 'https://tiles.openfreemap.org/styles/dark',
-  attributionControl: { customAttribution: openFreeMapAttribution }
-});
+let darkTiles = null;
+try {
+  if (window.maplibregl?.supported() && typeof L.maplibreGL === 'function') {
+    darkTiles = L.maplibreGL({
+      style: 'https://tiles.openfreemap.org/styles/dark',
+      attributionControl: { customAttribution: openFreeMapAttribution }
+    });
+  }
+} catch (_err) {
+  reportError('Dark map unavailable; using the standard map.');
+}
 const topoTiles = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
   maxZoom: 17,
   attribution: '&copy; OpenStreetMap contributors &copy; OpenTopoMap'
@@ -7970,19 +7977,32 @@ if (shareToggle) {
 const mapToggle = document.getElementById('map-toggle');
 const topoToggle = document.getElementById('topo-toggle');
 function setBaseLayer(name) {
-  if (map.hasLayer(lightTiles)) map.removeLayer(lightTiles);
-  if (map.hasLayer(darkTiles)) map.removeLayer(darkTiles);
-  if (map.hasLayer(topoTiles)) map.removeLayer(topoTiles);
-  if (map.hasLayer(satelliteTiles)) map.removeLayer(satelliteTiles);
-  if (name === 'dark') {
-    map.addLayer(darkTiles);
-  } else if (name === 'topo') {
-    map.addLayer(topoTiles);
-  } else if (name === 'satellite') {
-    map.addLayer(satelliteTiles);
-  } else {
-    map.addLayer(lightTiles);
+  if (name === 'dark' && !darkTiles) name = 'light';
+  let target = name === 'dark' ? darkTiles
+    : name === 'topo' ? topoTiles
+      : name === 'satellite' ? satelliteTiles : lightTiles;
+  try {
+    // Prepare the replacement before removing the last working basemap.
+    if (!map.hasLayer(target)) map.addLayer(target);
+    if (name === 'dark') {
+      const canvas = darkTiles.getMaplibreMap().getCanvas();
+      if (!canvas.__meshmapContextWatched) {
+        canvas.__meshmapContextWatched = true;
+        canvas.addEventListener('webglcontextlost', () => {
+          if (baseLayer === 'dark') setBaseLayer('light');
+        }, { once: true });
+      }
+    }
+  } catch (_err) {
+    if (target && map.hasLayer(target)) map.removeLayer(target);
+    name = 'light';
+    target = lightTiles;
+    if (!map.hasLayer(target)) map.addLayer(target);
+    reportError('Dark map unavailable; using the standard map.');
   }
+  [lightTiles, darkTiles, topoTiles, satelliteTiles].forEach((layer) => {
+    if (layer && layer !== target && map.hasLayer(layer)) map.removeLayer(layer);
+  });
   document.body.classList.toggle('dark-map', name === 'dark');
   baseLayer = name;
   localStorage.setItem('meshmapBaseLayer', baseLayer);

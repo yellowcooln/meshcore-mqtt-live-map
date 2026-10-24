@@ -7,6 +7,13 @@ updates:
     target-branch: "dev"
     open-pull-requests-limit: 10
 
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 5
+
   - package-ecosystem: "docker"
     directory: "/backend"
     schedule:
