@@ -7707,11 +7707,14 @@ setStats();
 setInterval(refreshHeatLayer, 15000);
 setInterval(refreshOnlineMarkers, 30000);
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
+  const registerServiceWorker = () => {
     const swPath = apiPath('/sw.js');
     const swScope = publicPathPrefix ? `${publicPathPrefix}/` : '/';
     navigator.serviceWorker.register(swPath, { scope: swScope }).catch(() => { });
-  });
+  };
+  // The ESM renderer may finish after load has already fired.
+  if (document.readyState === 'complete') registerServiceWorker();
+  else window.addEventListener('load', registerServiceWorker, { once: true });
 }
 
 const hopsToggle = document.getElementById('hops-toggle');
