@@ -6,6 +6,7 @@
 - Replaced vulnerable MapLibre 5.6 with `6.15.0`: lockfile-pinned, same-origin ESM/shared/worker assets and the existing Leaflet bridge, with ordered boot, WebGL2 detection, safe raster fallback, required attribution, explicit same-origin worker policy, and a refreshed PWA cache. Preserved the map UI and existing layers/tools. Pinned Leaflet Heat `0.2.0` with verified SRI.
 - CI now builds and tests the actual Python 3.15 / Node 24 production image instead of a separate Python 3.12 environment. Added executable renderer boot/failure regressions and npm dependency tracking. Docker Node updates remain on the reviewed 24 LTS line; future Node-major migrations require deliberate review when this policy reaches the default branch.
 - Python 3.15 currently builds PyYAML `6.0.3` without LibYAML because no cp315 wheel is available; this does not change the app's YAML API use. Architecture-specific runtime verification remains necessary before publication.
+- Docker builds now run on GitHub-hosted Ubuntu rather than requiring a self-hosted runner. Pull requests validate the amd64/arm64 image build without registry login or publication; existing main/dev, version-tag and manual publishing behavior is preserved.
 
 ## v1.9.7 (08-30-2026)
 - Fixed HTTP and new WebSocket connections stalling when packet processing was backlogged and no map clients were connected. The broadcaster now yields between events without discarding queued updates or disabling history.
