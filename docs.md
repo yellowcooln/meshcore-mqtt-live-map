@@ -1,13 +1,45 @@
 # Mesh Map Live: Implementation Notes
 
 This document captures the state of the project and the key changes made so far, so a new Codex session can pick up without losing context.
-Current version: `1.9.7` (see `VERSIONS.md`).
+Current version: `1.9.8` (see `VERSIONS.md`).
 
 ## Overview
 This project renders live MeshCore traffic on a Leaflet + OpenStreetMap map. A FastAPI backend subscribes to MQTT (WSS/TLS or TCP), decodes MeshCore packets using the official [`@michaelhart/meshcore-decoder`](https://www.npmjs.com/package/@michaelhart/meshcore-decoder), and broadcasts device updates and routes over WebSockets to the frontend. Core logic is split into config/state/decoder/LOS/history modules so changes are localized. The UI includes heatmap, LOS tools, map mode toggles, and a 24-hour route history layer.
 
+## Runtime and frontend asset maintenance
+
+Docker uses Python `3.15.1-slim` and official Node `24.22.1` on Debian trixie.
+Node's npm 11 is used only in the build stage; the runtime contains the Node
+executable, required shared libraries, and the lockfile-resolved decoder.
+PyYAML `6.0.3` currently falls back to its pure-Python build on Python 3.15
+(no cp315 wheel); do not assume LibYAML acceleration is present.
+
+For non-Docker development, use Node 24 and run `npm ci --prefix backend`
+then `npm run build:assets --prefix backend` before serving the app. Generated
+`backend/static/vendor/` files are ignored; `backend/package-lock.json` is the
+authoritative integrity-checked source. Docker performs these steps itself.
+MapLibre `6.15.0` is ESM-only: `map-renderer.mjs` imports its namespace, then the
+Leaflet bridge, then starts the existing classic `app.js`. Keep its entry,
+shared module, and module worker together. The worker is same-origin and the
+page's CSP restricts `worker-src` to `'self'` without `blob:` or `unsafe-eval`.
+This worker policy is not a complete script/connect-source allowlist.
+
+MapLibre requires WebGL2. Missing assets or unsupported/failed vector setup
+fall back to the light raster map without blocking the dashboard/WebSocket;
+selected-layer storage and body theme reflect that actual fallback. Keep
+OpenFreeMap, OpenMapTiles and OpenStreetMap attribution visible. Leaflet Heat
+is pinned to `0.2.0` with SRI. When renderer assets change, update the CSS SRI
+and service-worker cache generation together. OpenFreeMap remains an external
+no-SLA provider. Server Pillow previews retain their separate documented
+CARTO-key / OpenStreetMap behavior; the interactive renderer is not reused
+for those images.
+
+CI builds and runs the test suite in the actual production image, including
+the pinned Node decoder. Local amd64 verification does not prove arm64
+runtime or hosted publication; verify those independently before release.
+
 ## Versioning
-- `VERSION.txt` holds the current version string (`1.9.7`).
+- `VERSION.txt` holds the current version string (`1.9.8`).
 - `VERSIONS.md` is an append-only changelog by version.
 
 ## Key Paths

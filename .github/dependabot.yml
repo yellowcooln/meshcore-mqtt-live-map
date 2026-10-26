@@ -7,12 +7,23 @@ updates:
     target-branch: "dev"
     open-pull-requests-limit: 10
 
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 5
+
   - package-ecosystem: "docker"
     directory: "/backend"
     schedule:
       interval: "weekly"
     target-branch: "dev"
     open-pull-requests-limit: 5
+    ignore:
+      # Review future Node LTS-major migrations explicitly; keep patches/minors.
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"

@@ -1,0 +1,13 @@
+{
+  "name": "meshmap-runtime-assets",
+  "version": "1.9.8",
+  "private": true,
+  "description": "Pinned packet decoder and same-origin browser renderer assets",
+  "scripts": { "build:assets": "node scripts/vendor-assets.mjs" },
+  "engines": { "node": ">=24.0.0 <25.0.0" },
+  "dependencies": {
+    "@michaelhart/meshcore-decoder": "0.3.0",
+    "@maplibre/maplibre-gl-leaflet": "0.1.4",
+    "maplibre-gl": "6.15.0"
+  }
+}

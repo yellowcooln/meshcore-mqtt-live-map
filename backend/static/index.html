@@ -4,6 +4,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="darkreader-lock">
+  <!-- Module workers stay same-origin; do not grant blob: or unsafe-eval. -->
+  <meta http-equiv="Content-Security-Policy" content="worker-src 'self'; object-src 'none'; base-uri 'self'">
   <title>{{SITE_TITLE}}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="{{SITE_DESCRIPTION}}" />
@@ -23,8 +25,8 @@
   {{TWITTER_IMAGE_TAG}}
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
-    integrity="sha384-Nq6PQ+9vJPvw7U/VfDELyrWoGQMsy0gi6QShhaSrGzkpF5KkM40csg2leky+YMTd"
+  <link rel="stylesheet" href="{{STATIC_BASE}}/vendor/maplibre/maplibre-gl.css"
+    integrity="sha384-S+OnE5M4U3Qc2nR0RgljGrVs06xqfRg8L7uFk/pOF5+sRuSDG4oKkqKZmFrx7w09"
     crossorigin="anonymous" />
   <link rel="stylesheet" href="{{STATIC_BASE}}/styles.css?v={{ASSET_VERSION}}" />
 </head>
@@ -474,15 +476,10 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"
-    integrity="sha384-GfxBM9x46BaAFxtCq39Fxir8fNZ4VDnwgfi6Kzi5/F1tAFsm0amuuV8kd+Pxzuf/"
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"
+    integrity="sha384-mFKkGiGvT5vo1fEyGCD3hshDdKmW3wzXW/x+fWriYJArD0R3gawT6lMvLboM22c0"
     crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/dist/leaflet-maplibre-gl.js"
-    integrity="sha384-tXYNKOHx4T02jMP7YYCtBxPIv1B5gaA5mcVPBzqMp6d7VzWzxJgI2aWF/nJLrQdS"
-    crossorigin="anonymous"></script>
-
-  <script src="{{STATIC_BASE}}/app.js?v={{ASSET_VERSION}}" defer></script>
+  <script type="module" src="{{STATIC_BASE}}/map-renderer.mjs?v={{ASSET_VERSION}}"></script>
 </body>
 
 </html>
