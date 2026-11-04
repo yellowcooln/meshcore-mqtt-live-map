@@ -3,7 +3,7 @@ const meshmapHomePath = MESHMAP_APP_BASE ? `${MESHMAP_APP_BASE}/` : '/';
 const meshmapManifestPath = MESHMAP_APP_BASE
   ? `${MESHMAP_APP_BASE}/manifest.webmanifest`
   : '/manifest.webmanifest';
-const CACHE_NAME = 'meshmap-pwa-v8-live-updates';
+const CACHE_NAME = 'meshmap-pwa-v9-snapshot-startup';
 const CORE_ASSETS = [meshmapHomePath, meshmapManifestPath];
 
 self.addEventListener('install', (event) => {

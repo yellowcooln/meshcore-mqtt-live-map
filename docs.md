@@ -68,6 +68,14 @@ itself is not time-sliced. A short heap sample is not proof of long-session
 memory stability, and external basemap/heat/animation costs require separate
 profiling before changing their rendering or retention semantics.
 
+After the first accepted WebSocket snapshot, a late startup HTTP response is
+ignored before any state mutation, even if the socket has since disconnected.
+Socket-open alone does not disable HTTP fallback; HTTP-first loading and normal
+WebSocket reconciliation remain supported. Snapshot server time is not a total
+ordering/version protocol. The HTTP fallback batches HUD scans while applying
+data and restores normal stats updates with `finally`, including on render
+errors; it does not time-slice or shrink the snapshot payload.
+
 Node popups use Leaflet content callbacks so closed markers do not format or
 retain eagerly rebuilt popup HTML. The callback reads the current device record
 on opening; visible popups also refresh on live updates and the periodic status

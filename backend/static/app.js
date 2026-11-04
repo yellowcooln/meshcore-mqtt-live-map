@@ -7461,33 +7461,40 @@ async function initialSnapshot() {
   try {
     const res = await fetch(withToken('/snapshot'), { headers: tokenHeaders() });
     const snap = await res.json();
-    setServerTimeOffset(snap.server_time);
-    if (snap.devices) {
-      for (const [id, d] of Object.entries(snap.devices)) {
-        const trail = snap.trails ? snap.trails[id] : null;
-        upsertDevice(d, trail);
+    // The stream supersedes this startup response, even after a disconnect.
+    if (wsSnapshotAccepted) return;
+    deferStats = true;
+    try {
+      setServerTimeOffset(snap.server_time);
+      if (snap.devices) {
+        for (const [id, d] of Object.entries(snap.devices)) {
+          const trail = snap.trails ? snap.trails[id] : null;
+          upsertDevice(d, trail);
+        }
+        tryFocusLinkedDevice();
       }
-      tryFocusLinkedDevice();
-    }
-    if (Array.isArray(snap.heat)) {
-      seedHeat(snap.heat);
-    }
-    if (Array.isArray(snap.routes)) {
-      clearRoutes();
-      snap.routes.forEach(r => upsertRoute(r, true));
-    }
-    if (Array.isArray(snap.history_edges)) {
-      if (routeHistoryEnabled) {
-        snap.history_edges.forEach(edge => upsertHistoryEdge(edge));
+      if (Array.isArray(snap.heat)) {
+        seedHeat(snap.heat);
       }
-    }
-    applyMqttPresenceSummary(snap.mqtt_presence);
-    if (snap.history_window_seconds != null) {
-      historyWindowSeconds = Number(snap.history_window_seconds);
-      updateHistoryWindowLabel(historyWindowSeconds);
-    }
-    if (snap.update) {
-      setUpdateBanner(snap.update);
+      if (Array.isArray(snap.routes)) {
+        clearRoutes();
+        snap.routes.forEach(r => upsertRoute(r, true));
+      }
+      if (Array.isArray(snap.history_edges)) {
+        if (routeHistoryEnabled) {
+          snap.history_edges.forEach(edge => upsertHistoryEdge(edge));
+        }
+      }
+      applyMqttPresenceSummary(snap.mqtt_presence);
+      if (snap.history_window_seconds != null) {
+        historyWindowSeconds = Number(snap.history_window_seconds);
+        updateHistoryWindowLabel(historyWindowSeconds);
+      }
+      if (snap.update) {
+        setUpdateBanner(snap.update);
+      }
+    } finally {
+      deferStats = false;
     }
     refreshStats();
   } catch (e) {
@@ -7496,6 +7503,7 @@ async function initialSnapshot() {
 }
 
 const pendingWsMessages = [];
+let wsSnapshotAccepted = false;
 const WS_FLUSH_FALLBACK_MS = 1000;
 const WS_FLUSH_BUDGET_MS = 4;
 const WS_FLUSH_MAX_MESSAGES = 128;
@@ -7693,6 +7701,7 @@ function connectWS() {
     const msg = JSON.parse(ev.data);
 
     if (msg.type === "snapshot") {
+      wsSnapshotAccepted = true;
       // The snapshot replaces earlier work; a sliced old drain must not replay
       // over it after this connection's authoritative state has been applied.
       clearQueuedWsMessages();

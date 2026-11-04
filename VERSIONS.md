@@ -1,6 +1,7 @@
 # Versions
 
 ## v1.9.9 (11-04-2026)
+- Prevent a delayed startup HTTP snapshot from overwriting an accepted WebSocket snapshot or subsequent live updates, including across disconnects/reconnects. Keep HTTP fallback until the stream supplies a snapshot, and batch its HUD statistics instead of rescanning the full map for every loaded device, route and history edge.
 - Refresh the PWA static-asset cache generation and restrict static lookups to that generation, so an older service worker finishing a cache write cannot make the updated worker serve stale frontend code. Preserve offline caching of the updated assets, including subpath deployments.
 - Render node popups on demand instead of rebuilding every closed popup during initial loading, live updates and the 30-second marker refresh. Open popups still update live; reopened popups use current metadata, Last Contact and MQTT state, with copy, node-link and QR actions preserved.
 - Keep the browser responsive during large WebSocket bursts by draining ordered updates in short, time-budgeted slices instead of processing the whole backlog in one frame. Preserve the fallback flush and hidden-tab pause; cancel queued old-connection work on disconnect or replacement snapshots so stale updates cannot overwrite fresh state.
