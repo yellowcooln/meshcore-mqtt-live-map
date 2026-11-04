@@ -7548,7 +7548,7 @@ function pauseWsWhileHidden() {
   }
 }
 
-document.addEventListener('visibilitychange', () => {
+function handleWsVisibilityChange() {
   if (document.hidden) {
     if (!wsHiddenTimer) {
       wsHiddenTimer = setTimeout(pauseWsWhileHidden, WS_HIDDEN_DISCONNECT_MS);
@@ -7563,7 +7563,10 @@ document.addEventListener('visibilitychange', () => {
     wsPausedForHidden = false;
     connectWS();
   }
-});
+}
+document.addEventListener('visibilitychange', handleWsVisibilityChange);
+// A page opened in a background tab may start hidden without a change event.
+handleWsVisibilityChange();
 
 function handleRealtimeMessage(msg) {
   if (msg.type === "update") {

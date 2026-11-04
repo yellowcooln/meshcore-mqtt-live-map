@@ -1,5 +1,6 @@
 """Realtime messages must not pile up while the tab is hidden."""
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -30,7 +31,7 @@ const prodMode = false, apiToken = '', apiPath = (p) => p;
 // A hidden tab never runs animation frames.
 const window = {requestAnimationFrame() {}};
 const document = {
-  hidden: true,
+  hidden: false,
   addEventListener(type, fn) { if (type === 'visibilitychange') visListener = fn; }
 };
 let deferStats = false;
@@ -72,6 +73,7 @@ const send = (socket, msg) => socket.onmessage({data: JSON.stringify(msg)});
   // Brief hide: the pending pause is cancelled.
   globalThis.setTimeout = (fn, ms) => (ms === WS_HIDDEN_DISCONNECT_MS
     ? (pauseFn = fn, 1) : realSetTimeout(fn, ms));
+  document.hidden = true;
   visListener();
   assert.ok(pauseFn);
   document.hidden = false;
@@ -114,5 +116,110 @@ const send = (socket, msg) => socket.onmessage({data: JSON.stringify(msg)});
 """
   result = subprocess.run(
     ["node", "-e", script], capture_output=True, text=True, timeout=30
+  )
+  assert result.returncode == 0, result.stderr
+
+
+def test_initially_hidden_tab_pauses_and_recovers():
+  section = _ws_section(APP_JS.read_text(encoding="utf-8"))
+  script = r"""
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+function boot(hidden) {
+  let now = 0, nextId = 0;
+  const timers = new Map(), sockets = [], listeners = {};
+  const context = {
+    console: {log() {}},
+    WebSocket: class {
+      constructor() { this.closed = false; sockets.push(this); }
+      close() { this.closed = true; this.onclose?.(); }
+    },
+    location: {protocol: 'https:', host: 'example.test'},
+    prodMode: false, apiToken: '', apiPath: p => p,
+    window: {requestAnimationFrame() {}},
+    document: {hidden, addEventListener: (type, fn) => {listeners[type] = fn;}},
+    setTimeout: (fn, ms) => {
+      const id = ++nextId;
+      timers.set(id, {fn, at: now + ms});
+      return id;
+    },
+    clearTimeout: id => timers.delete(id),
+    deviceData: new Map([['old', {device_id: 'old'}]]),
+    historyCache: new Map(), routeHistoryEnabled: true, deferStats: false,
+    scheduleStatsUpdate() {}, setStats() {}, setServerTimeOffset() {},
+    tryFocusLinkedDevice() {}, clearRoutes() {}, seedHeat() {}, upsertRoute() {},
+    upsertHistoryEdge() {}, clearHistoryLayer() {}, applyMqttPresenceSummary() {},
+    updateHistoryWindowLabel() {}, setUpdateBanner() {},
+    upsertDevice: d => context.deviceData.set(d.device_id, d),
+    removeDevices: ids => ids.forEach(id => context.deviceData.delete(id)),
+  };
+  vm.createContext(context);
+  vm.runInContext(SECTION, context);
+  vm.runInContext('connectWS()', context);
+  function advance(ms) {
+    const target = now + ms;
+    while (true) {
+      const due = [...timers].filter(([, t]) => t.at <= target)
+        .sort((a, b) => a[1].at - b[1].at || a[0] - b[0]);
+      if (!due.length) break;
+      const [id, timer] = due[0];
+      timers.delete(id);
+      now = timer.at;
+      timer.fn();
+    }
+    now = target;
+  }
+  function visibility(hidden) {
+    context.document.hidden = hidden;
+    listeners.visibilitychange();
+  }
+  return {context, sockets, timers, advance, visibility};
+}
+// No visibilitychange event: initial hidden state alone must arm the timer.
+const hidden = boot(true);
+hidden.advance(59999);
+assert.equal(hidden.sockets[0].closed, false, 'keep the 60-second grace period');
+hidden.advance(1);
+assert.equal(hidden.sockets[0].closed, true, 'initially hidden socket must pause');
+hidden.advance(120000);
+assert.equal(hidden.sockets.length, 1, 'no automatic reconnect while paused');
+hidden.visibility(false);
+assert.equal(hidden.sockets.length, 2, 'showing a paused tab reconnects');
+hidden.visibility(false);
+assert.equal(hidden.sockets.length, 2, 'repeated show does not duplicate sockets');
+hidden.sockets[1].onmessage({data: JSON.stringify({
+  type: 'snapshot', devices: {fresh: {device_id: 'fresh'}}, history_edges: []
+})});
+assert.deepEqual([...hidden.context.deviceData.keys()], ['fresh']);
+// Late delivery from the retired socket cannot reintroduce an expired node.
+hidden.sockets[0].onmessage({data: JSON.stringify({
+  type: 'update', device: {device_id: 'old'}
+})});
+hidden.advance(2000);
+assert.equal(hidden.context.deviceData.has('old'), false);
+
+// Showing an initially hidden tab before the deadline cancels the pause.
+const brief = boot(true);
+brief.advance(30000);
+brief.visibility(false);
+brief.advance(61000);
+assert.equal(brief.sockets[0].closed, false);
+assert.equal(brief.sockets.length, 1);
+
+// Repeated hidden notifications must not postpone the original deadline.
+const repeated = boot(true);
+repeated.advance(30000);
+repeated.visibility(true);
+repeated.advance(30000);
+assert.equal(repeated.sockets[0].closed, true);
+
+const visible = boot(false);
+visible.advance(120000);
+assert.equal(visible.sockets[0].closed, false, 'initially visible stays connected');
+assert.equal(visible.sockets.length, 1);
+"""
+  script = script.replace("SECTION", json.dumps(section), 1)
+  result = subprocess.run(
+    ["node", "-e", script], capture_output=True, text=True, timeout=10
   )
   assert result.returncode == 0, result.stderr

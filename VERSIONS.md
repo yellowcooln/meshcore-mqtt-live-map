@@ -1,7 +1,7 @@
 # Versions
 
 ## v1.9.9 (11-04-2026)
-- Integrated [PR #109](https://github.com/yellowcooln/meshcore-mqtt-live-map/pull/109) by [anieto](https://github.com/anieto): prevent background-tab WebSocket updates from accumulating behind paused animation frames with a fallback flush, pause the socket after 60 seconds hidden, and reconnect with a fresh snapshot when shown. Reconnect snapshots remove expired devices/history edges, and heat redraws are batched instead of repeated for every route.
+- Integrated [PR #109](https://github.com/yellowcooln/meshcore-mqtt-live-map/pull/109) by [anieto](https://github.com/anieto): prevent background-tab WebSocket updates from accumulating behind paused animation frames with a fallback flush, pause the socket after 60 seconds hidden (including pages opened in a background tab), and reconnect with a fresh snapshot when shown. Reconnect snapshots remove expired devices/history edges, and heat redraws are batched instead of repeated for every route.
 - Fixed the HUD status summary overflowing with filtered route counts: shortened `active devices` to `devices` and omitted the history count when Route History is disabled.
 - Fixed Peers list rows expanding beyond their scrollable column and clipping packet percentages or distances. Long names now yield space to the numeric columns while retaining their full hover title and fixed ranks.
 - Made map credits more compact and legible while preserving provider attribution and the Privacy link. Mobile tool panels now clear the measured attribution and zoom controls, including after layer changes or wrapped credit updates.
