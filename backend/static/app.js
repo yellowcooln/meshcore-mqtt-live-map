@@ -6474,7 +6474,8 @@ function upsertDevice(d, trail) {
   // marker
   if (!markers.has(id)) {
     const m = L.circleMarker(latlng, { ...style, renderer: vectorRenderer });
-    m.bindPopup(makePopup(d), {
+    // Leaflet evaluates content when opened; closed markers need no HTML.
+    m.bindPopup(() => makePopup(deviceData.get(id)), {
       maxWidth: 260,
       maxHeight: 320,
       autoPan: false,
@@ -6597,7 +6598,7 @@ function upsertDevice(d, trail) {
   } else {
     const m = markers.get(id);
     m.setLatLng(latlng);
-    m.setPopupContent(makePopup(d));
+    if (m.isPopupOpen()) m.getPopup().update();
     if (m.setStyle) m.setStyle(style);
     updateMarkerLabel(m, d);
     syncLayerMembership(markerLayer, m, visibleOnMap);
@@ -6702,7 +6703,7 @@ function refreshOnlineMarkers() {
     if (!d) return;
     const style = markerStyleForDevice(d);
     if (m.setStyle) m.setStyle(style);
-    if (m.getPopup()) m.setPopupContent(makePopup(d));
+    if (m.isPopupOpen()) m.getPopup().update();
   });
   refreshViewportLayers();
   refreshStats();
@@ -7627,7 +7628,7 @@ function handleRealtimeMessage(msg) {
       const m = markers.get(id);
       if (m) {
         if (m.setStyle) m.setStyle(markerStyleForDevice(d));
-        m.setPopupContent(makePopup(d));
+        if (m.isPopupOpen()) m.getPopup().update();
         updateMarkerLabel(m, d);
       }
       refreshStats();

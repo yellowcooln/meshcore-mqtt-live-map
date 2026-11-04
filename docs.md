@@ -68,6 +68,21 @@ itself is not time-sliced. A short heap sample is not proof of long-session
 memory stability, and external basemap/heat/animation costs require separate
 profiling before changing their rendering or retention semantics.
 
+Node popups use Leaflet content callbacks so closed markers do not format or
+retain eagerly rebuilt popup HTML. The callback reads the current device record
+on opening; visible popups also refresh on live updates and the periodic status
+refresh. Keep the popup content-update action binding: replacing visible content
+must not break copy/location/link/QR buttons or attach duplicate handlers. Marker
+styles, online expiry and viewport membership still refresh independently of
+popup visibility.
+
+Refresh the service-worker cache generation when shipping changed static
+assets, including same-version dev builds. Static lookups must use the current
+cache name: a retired worker can finish a write after activation cleanup, so a
+global cross-generation lookup can resurrect old frontend code. Already-open
+pages keep their running JavaScript until reloaded; updated assets remain
+cache-first/offline-capable after the new worker takes control.
+
 ## Versioning
 - `VERSION.txt` holds the current version string (`1.9.9`).
 - `VERSIONS.md` is an append-only changelog by version.
