@@ -1,7 +1,7 @@
 # How-To: MQTT Broker + Live Map
 
 This guide covers two parts: stand up a MeshCore MQTT broker and point the live map at it.
-Current version: `1.9.7` (see `VERSIONS.md`).
+Current version: `1.9.8` (see `VERSIONS.md`).
 
 Useful UI defaults in the live map `.env`:
 - `HEAT_DEFAULT_ON=true|false` sets the default Heat toggle state for first load.

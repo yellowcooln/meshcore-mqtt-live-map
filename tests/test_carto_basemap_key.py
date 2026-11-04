@@ -54,13 +54,12 @@ def test_browser_uses_keyless_openfreemap_dark_style():
   index = INDEX_HTML.read_text(encoding="utf-8")
 
   assert "https://tiles.openfreemap.org/styles/dark" in source
-  assert "const darkTiles = L.maplibreGL" in source
-  assert "if (name === 'dark' && !darkTiles)" not in source
+  assert "darkTiles = L.maplibreGL" in source
   assert "mapToggle.hidden = !darkTiles" not in source
   assert "mapToggle.hidden = false" in source
-  assert "maplibre-gl@5.6.0/dist/maplibre-gl.css" in index
-  assert "maplibre-gl@5.6.0/dist/maplibre-gl.js" in index
-  assert "@maplibre/maplibre-gl-leaflet@0.1.4" in index
+  assert "/vendor/maplibre/maplibre-gl.css" in index
+  assert 'type="module" src="{{STATIC_BASE}}/map-renderer.mjs' in index
+  assert "maplibre-gl@5." not in index
 
 
 def test_browser_only_requests_carto_labels_when_key_is_configured():
