@@ -1,6 +1,9 @@
 # Versions
 
 ## v1.9.9 (11-04-2026)
+- Fixed the HUD status summary overflowing with filtered route counts: shortened `active devices` to `devices` and omitted the history count when Route History is disabled.
+- Fixed Peers list rows expanding beyond their scrollable column and clipping packet percentages or distances. Long names now yield space to the numeric columns while retaining their full hover title and fixed ranks.
+- Made map credits more compact and legible while preserving provider attribution and the Privacy link. Mobile tool panels now clear the measured attribution and zoom controls, including after layer changes or wrapped credit updates.
 - Updated the development test runner from pytest `9.1.1` to `9.2.0` through PR #119.
 - Integrated dependency PRs #116 and #118 into `dev`, retaining the existing newer Python `3.15.1-slim` runtime and FastAPI `0.162.0` pin. Preserved HTTPX2 `2.16.0` while resolving the overlapping development-requirements update.
 

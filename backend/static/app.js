@@ -1094,7 +1094,8 @@ function setStats() {
   const routeLabel = routeFiltersInactive || visibleRoutes === totalRoutes
     ? `${visibleRoutes} routes`
     : `${visibleRoutes}/${totalRoutes} routes`;
-  document.getElementById('stats').textContent = `${markers.size} active devices • ${onlineTotal} MQTT online • ${routeLabel} • ${historyLines.size} history`;
+  const historyLabel = routeHistoryEnabled ? ` • ${historyLines.size} history` : '';
+  document.getElementById('stats').textContent = `${markers.size} devices • ${onlineTotal} MQTT online • ${routeLabel}${historyLabel}`;
 }
 
 let statsFramePending = false;
@@ -4050,7 +4051,19 @@ function layoutSidePanels() {
   });
   if (!panels.length) return;
   const gap = 12;
-  const availableHeight = Math.max(200, window.innerHeight - 24);
+  const isMobile = window.matchMedia('(max-width: 900px)').matches;
+  let bottomInset = 12;
+  if (isMobile) {
+    document.querySelectorAll(
+      '.leaflet-bottom .leaflet-control, .maplibregl-ctrl-attrib'
+    ).forEach(control => {
+      const rect = control.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        bottomInset = Math.max(bottomInset, window.innerHeight - rect.top + 8);
+      }
+    });
+  }
+  const availableHeight = Math.max(200, window.innerHeight - 12 - bottomInset);
   const totalHeight = panels.reduce((sum, panel) => sum + (panel.offsetHeight || 0), 0)
     + (panels.length - 1) * gap;
   if (totalHeight > availableHeight) {
@@ -4062,9 +4075,8 @@ function layoutSidePanels() {
       panel.style.maxHeight = `${maxPer}px`;
     });
   }
-  const isMobile = window.matchMedia('(max-width: 900px)').matches;
   if (isMobile) {
-    let bottom = 12;
+    let bottom = bottomInset;
     panels.slice().reverse().forEach(panel => {
       panel.style.bottom = `${bottom}px`;
       bottom += (panel.offsetHeight || 0) + gap;
@@ -8173,6 +8185,13 @@ document.addEventListener('click', (ev) => {
   searchResults.hidden = true;
   searchResults.innerHTML = '';
 });
+// Provider/coverage credits can wrap or change after a layer switch without a
+// viewport resize. Keep mobile panels above the complete, visible attribution.
+const attributionContainer = map.attributionControl?.getContainer();
+if (attributionContainer && typeof ResizeObserver === 'function') {
+  const attributionResizeObserver = new ResizeObserver(() => layoutSidePanels());
+  attributionResizeObserver.observe(attributionContainer);
+}
 window.addEventListener('resize', () => {
   positionRouteNodeFilterResults();
   layoutSidePanels();
