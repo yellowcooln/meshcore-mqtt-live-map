@@ -1,6 +1,6 @@
 {
   "name": "meshmap-runtime-assets",
-  "version": "1.9.8",
+  "version": "1.9.9",
   "private": true,
   "description": "Pinned packet decoder and same-origin browser renderer assets",
   "scripts": { "build:assets": "node scripts/vendor-assets.mjs" },

@@ -7,7 +7,7 @@ RUN npm ci --omit=dev --no-audit --fund=false \
 
 FROM python:3.15.1-slim
 
-ARG APP_VERSION=1.9.8
+ARG APP_VERSION=1.9.9
 ENV APP_VERSION=${APP_VERSION}
 
 WORKDIR /app

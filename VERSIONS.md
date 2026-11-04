@@ -1,5 +1,9 @@
 # Versions
 
+## v1.9.9 (11-04-2026)
+- Updated the development test runner from pytest `9.1.1` to `9.2.0` through PR #119.
+- Integrated dependency PRs #116 and #118 into `dev`, retaining the existing newer Python `3.15.1-slim` runtime and FastAPI `0.162.0` pin. Preserved HTTPX2 `2.16.0` while resolving the overlapping development-requirements update.
+
 ## v1.9.8 (10-24-2026)
 - Integrated dependency PRs #110–#114, retaining both Pillow proposal heads in Git history. Updated FastAPI to `0.162.0`, Pillow to `13.0.0`, and development HTTPX2 to `2.16.0`.
 - Migrated the Docker runtime to Python `3.15.1-slim` and official Node `24.22.1` on Debian trixie, refreshed tzdata, and retained npm 11 only in the build stage. The real packet decoder remains `0.3.0` with its upstream-owned transitive major constraints unchanged.
