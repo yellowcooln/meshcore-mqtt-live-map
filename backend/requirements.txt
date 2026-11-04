@@ -1,6 +1,6 @@
-fastapi==0.142.2
+fastapi==0.162.0
 uvicorn[standard]==0.54.0
 paho-mqtt==2.1.0
 httpx==0.28.1
-Pillow==12.3.0
+Pillow==13.0.0
 qrcode==8.2

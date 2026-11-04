@@ -14,20 +14,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Setup Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
+      - name: Build production runtime (Python 3.15 / Node 24)
+        run: docker build --build-arg APP_VERSION="$(tr -d '\r\n' < VERSION.txt)" -t meshmap-test backend
 
-      - name: Install dependencies
+      - name: Run tests inside the production runtime
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-
-      - name: Install packet decoder for integration tests
-        run: npm install --prefix backend @michaelhart/meshcore-decoder@0.3.0
-
-      - name: Run tests
-        env:
-          MESHCORE_TEST_NODE_MODULES: ${{ github.workspace }}/backend/node_modules
-        run: pytest -q
+          docker run --rm --tmpfs /data --tmpfs /backup \
+            -v "$GITHUB_WORKSPACE:/source:ro" \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            -e PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+            -e MESHCORE_TEST_NODE_MODULES=/app/node_modules \
+            -e GIT_CHECK_ENABLED=false -e MQTT_HOST=127.0.0.1 \
+            meshmap-test sh -ec '
+              pip install -r /source/requirements-dev.txt
+              pip check
+              node --check /app/static/app.js
+              node --check /app/static/map-renderer.mjs
+              cd /source
+              python -m pytest -q -ra -p no:cacheprovider
+            '

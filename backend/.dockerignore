@@ -1,0 +1,5 @@
+node_modules
+static/vendor
+__pycache__
+*.pyc
+.env
