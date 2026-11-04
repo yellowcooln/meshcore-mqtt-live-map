@@ -137,6 +137,7 @@ function boot(hidden) {
     location: {protocol: 'https:', host: 'example.test'},
     prodMode: false, apiToken: '', apiPath: p => p,
     window: {requestAnimationFrame() {}},
+    performance: {now: () => now},
     document: {hidden, addEventListener: (type, fn) => {listeners[type] = fn;}},
     setTimeout: (fn, ms) => {
       const id = ++nextId;
@@ -150,7 +151,7 @@ function boot(hidden) {
     tryFocusLinkedDevice() {}, clearRoutes() {}, seedHeat() {}, upsertRoute() {},
     upsertHistoryEdge() {}, clearHistoryLayer() {}, applyMqttPresenceSummary() {},
     updateHistoryWindowLabel() {}, setUpdateBanner() {},
-    upsertDevice: d => context.deviceData.set(d.device_id, d),
+    upsertDevice: d => {now++; context.deviceData.set(d.device_id, d);},
     removeDevices: ids => ids.forEach(id => context.deviceData.delete(id)),
   };
   vm.createContext(context);
@@ -173,7 +174,8 @@ function boot(hidden) {
     context.document.hidden = hidden;
     listeners.visibilitychange();
   }
-  return {context, sockets, timers, advance, visibility};
+  return {context, sockets, timers, advance, visibility,
+    evaluate: source => vm.runInContext(source, context)};
 }
 // No visibilitychange event: initial hidden state alone must arm the timer.
 const hidden = boot(true);
@@ -217,6 +219,42 @@ const visible = boot(false);
 visible.advance(120000);
 assert.equal(visible.sockets[0].closed, false, 'initially visible stays connected');
 assert.equal(visible.sockets.length, 1);
+
+// A partially drained old connection must not replay over the next snapshot.
+const reconnect = boot(false);
+for (let i = 0; i < 100; i++) {
+  reconnect.sockets[0].onmessage({data: JSON.stringify({
+    type: 'update', device: {device_id: 'retired-' + i}
+  })});
+}
+reconnect.evaluate('flushQueuedWsMessages()');
+assert.ok(reconnect.evaluate('pendingWsMessages.length > wsQueueHead'));
+reconnect.sockets[0].close();
+reconnect.advance(1500);
+assert.equal(reconnect.sockets.length, 2);
+reconnect.sockets[1].onmessage({data: JSON.stringify({
+  type: 'snapshot', devices: {fresh: {device_id: 'fresh'}}, history_edges: []
+})});
+reconnect.advance(30000);
+assert.deepEqual([...reconnect.context.deviceData.keys()], ['fresh'],
+  'queued messages from the old connection must not revive expired nodes');
+
+const replacement = boot(false);
+for (let i = 0; i < 100; i++) {
+  replacement.sockets[0].onmessage({data: JSON.stringify({
+    type: 'update', device: {device_id: 'old-' + i}
+  })});
+}
+replacement.evaluate('flushQueuedWsMessages()');
+replacement.sockets[0].onmessage({data: JSON.stringify({
+  type: 'snapshot', devices: {fresh: {device_id: 'fresh'}}, history_edges: []
+})});
+replacement.sockets[0].onmessage({data: JSON.stringify({
+  type: 'update', device: {device_id: 'after-snapshot'}
+})});
+replacement.advance(30000);
+assert.deepEqual([...replacement.context.deviceData.keys()],
+  ['fresh', 'after-snapshot'], 'snapshot clears old work, not subsequent events');
 """
   script = script.replace("SECTION", json.dumps(section), 1)
   result = subprocess.run(

@@ -7496,41 +7496,77 @@ async function initialSnapshot() {
 
 const pendingWsMessages = [];
 const WS_FLUSH_FALLBACK_MS = 1000;
+const WS_FLUSH_BUDGET_MS = 4;
+const WS_FLUSH_MAX_MESSAGES = 128;
 const WS_HIDDEN_DISCONNECT_MS = 60000;
+let wsQueueHead = 0;
 let wsFlushScheduled = false;
 let wsFlushTimer = null;
+let wsFlushFrame = null;
 let ws = null;
 let wsHiddenTimer = null;
 let wsPausedForHidden = false;
 
-function flushQueuedWsMessages() {
-  wsFlushScheduled = false;
-  if (wsFlushTimer) {
+function cancelQueuedWsFlush() {
+  if (wsFlushTimer !== null) {
     clearTimeout(wsFlushTimer);
     wsFlushTimer = null;
   }
-  if (!pendingWsMessages.length) return;
-  const batch = pendingWsMessages.splice(0, pendingWsMessages.length);
+  if (wsFlushFrame !== null) {
+    window.cancelAnimationFrame?.(wsFlushFrame);
+    wsFlushFrame = null;
+  }
+  wsFlushScheduled = false;
+}
+
+function clearQueuedWsMessages() {
+  cancelQueuedWsFlush();
+  pendingWsMessages.length = 0;
+  wsQueueHead = 0;
+}
+
+function scheduleQueuedWsFlush() {
+  if (wsFlushScheduled || wsQueueHead >= pendingWsMessages.length) return;
+  wsFlushScheduled = true;
+  wsFlushFrame = window.requestAnimationFrame(flushQueuedWsMessages);
+  // Keep draining when animation frames are suspended, until the hidden-tab
+  // policy pauses the socket and a fresh snapshot can replace the old work.
+  wsFlushTimer = setTimeout(flushQueuedWsMessages, WS_FLUSH_FALLBACK_MS);
+}
+
+function flushQueuedWsMessages() {
+  cancelQueuedWsFlush();
+  if (wsQueueHead >= pendingWsMessages.length) return;
+  const started = performance.now();
+  let processed = 0;
   deferStats = true;
   try {
-    for (const msg of batch) {
+    while (wsQueueHead < pendingWsMessages.length) {
+      const msg = pendingWsMessages[wsQueueHead];
+      pendingWsMessages[wsQueueHead++] = null;
       handleRealtimeMessage(msg);
+      processed++;
+      if (processed >= WS_FLUSH_MAX_MESSAGES ||
+          performance.now() - started >= WS_FLUSH_BUDGET_MS) break;
     }
   } finally {
     deferStats = false;
+    if (wsQueueHead >= pendingWsMessages.length) {
+      pendingWsMessages.length = 0;
+      wsQueueHead = 0;
+    } else if (wsQueueHead >= 1024 && wsQueueHead * 2 >= pendingWsMessages.length) {
+      // Release processed slots without shifting the entire array per event.
+      pendingWsMessages.splice(0, wsQueueHead);
+      wsQueueHead = 0;
+    }
+    scheduleStatsUpdate();
+    scheduleQueuedWsFlush();
   }
-  scheduleStatsUpdate();
 }
 
 function queueRealtimeMessage(msg) {
   pendingWsMessages.push(msg);
-  if (wsFlushScheduled) return;
-  wsFlushScheduled = true;
-  // Browsers stop animation frames for hidden, minimized or covered windows,
-  // so without the timer the queue grew until the tab was shown again and
-  // then ran hours of messages in a single frame.
-  window.requestAnimationFrame(flushQueuedWsMessages);
-  wsFlushTimer = setTimeout(flushQueuedWsMessages, WS_FLUSH_FALLBACK_MS);
+  scheduleQueuedWsFlush();
 }
 
 // Nobody sees a hidden tab, so after a minute hidden drop the socket rather
@@ -7540,7 +7576,7 @@ function pauseWsWhileHidden() {
   wsHiddenTimer = null;
   if (!document.hidden) return;
   wsPausedForHidden = true;
-  pendingWsMessages.length = 0;
+  clearQueuedWsMessages();
   if (ws) {
     const socket = ws;
     ws = null;
@@ -7646,6 +7682,7 @@ function connectWS() {
   socket.onclose = () => {
     if (ws !== socket) return;
     ws = null;
+    clearQueuedWsMessages();
     console.log("ws disconnected, retrying...");
     setTimeout(connectWS, 1500);
   };
@@ -7655,7 +7692,9 @@ function connectWS() {
     const msg = JSON.parse(ev.data);
 
     if (msg.type === "snapshot") {
-      // same shape as /snapshot
+      // The snapshot replaces earlier work; a sliced old drain must not replay
+      // over it after this connection's authoritative state has been applied.
+      clearQueuedWsMessages();
       setServerTimeOffset(msg.server_time);
       deferStats = true;
       try {

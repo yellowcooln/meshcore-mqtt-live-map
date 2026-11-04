@@ -52,6 +52,22 @@ heuristic, or delete historical corrupt nodes. Continue to use configured
 retention for inactive records; any immediate historical cleanup needs verified
 complete IDs and a backed-up, explicitly scoped procedure.
 
+## Browser update scheduling
+
+Realtime updates remain FIFO and are not coalesced or dropped to meet a frame
+budget. Each drain targets 4 ms of handler work with a 128-message ceiling; one
+expensive handler or browser GC can exceed that target. Pending work continues
+on later animation frames, with the 1-second timer fallback preserved when
+frames do not run. This trades longer total catch-up time for responsiveness
+during very large bursts; ordinary low-rate updates still use the next frame.
+
+Hidden pages, including those initially hidden, pause their WebSocket after
+60 seconds. Disconnects and replacement snapshots cancel old queued work and
+reset the queue cursor; reconnect snapshots remain authoritative. The snapshot
+itself is not time-sliced. A short heap sample is not proof of long-session
+memory stability, and external basemap/heat/animation costs require separate
+profiling before changing their rendering or retention semantics.
+
 ## Versioning
 - `VERSION.txt` holds the current version string (`1.9.9`).
 - `VERSIONS.md` is an append-only changelog by version.

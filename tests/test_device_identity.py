@@ -142,7 +142,8 @@ def test_live_distinct_ids_do_not_delete_or_merge_each_other(
   assert set(state.trails) == {A, other_id}
   assert state.peer_history_pairs == peers_before
   assert not any(message["type"] == "stale" for message in emitted)
-  assert [message["device"]["device_id"] for message in emitted] == [A, other_id]
+  emitted_ids = [message["device"]["device_id"] for message in emitted]
+  assert emitted_ids == [A, other_id]
 
 
 def test_live_same_full_id_updates_one_record_without_erasing_history(
