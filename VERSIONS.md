@@ -1,6 +1,7 @@
 # Versions
 
 ## v1.9.9 (11-04-2026)
+- Preserve distinct full-key node identities during state loading and live updates. Matching names, short public-key prefixes, nearby coordinates, or stronger peer activity no longer authorize deleting another node or transferring its peer history. Same-ID updates still replace the existing record, and normal signature checks, visibility filters, hash-collision handling and retention remain unchanged. Historical corrupt records are not automatically cleaned or previously lost records reconstructed.
 - Integrated [PR #109](https://github.com/yellowcooln/meshcore-mqtt-live-map/pull/109) by [anieto](https://github.com/anieto): prevent background-tab WebSocket updates from accumulating behind paused animation frames with a fallback flush, pause the socket after 60 seconds hidden (including pages opened in a background tab), and reconnect with a fresh snapshot when shown. Reconnect snapshots remove expired devices/history edges, and heat redraws are batched instead of repeated for every route.
 - Fixed the HUD status summary overflowing with filtered route counts: shortened `active devices` to `devices` and omitted the history count when Route History is disabled.
 - Fixed Peers list rows expanding beyond their scrollable column and clipping packet percentages or distances. Long names now yield space to the numeric columns while retaining their full hover title and fixed ranks.

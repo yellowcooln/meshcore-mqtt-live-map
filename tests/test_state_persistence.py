@@ -153,7 +153,7 @@ def test_load_state_ignores_corrupt_json_file(tmp_path, monkeypatch):
   assert "KEEP1111" in state.devices
 
 
-def test_load_state_dedupes_same_name_same_location_entries(
+def test_load_state_preserves_distinct_same_name_same_location_ids(
   tmp_path, monkeypatch
 ):
   now = time.time()
@@ -278,13 +278,15 @@ def test_load_state_dedupes_same_name_same_location_entries(
 
   app._load_state()
 
-  assert "REAL1111" in state.devices
-  assert "GHOST111" not in state.devices
-  assert "GHOST111" not in state.seen_devices
-  assert "GHOST111" not in state.device_names
-  assert "025055A6BBBB" in state.devices
-  assert "025055A6AAAA" not in state.devices
-  assert "025055A6AAAA" not in state.last_seen_in_advert
+  # These are distinct identifiers; their names/location/prefix similarity
+  # is not evidence permitting deletion or transfer of one node's history.
+  assert set(state.devices) == {
+    "REAL1111", "GHOST111", "025055A6AAAA", "025055A6BBBB"
+  }
+  assert state.seen_devices["GHOST111"] == now - 300
+  assert state.device_names["GHOST111"] == "Node A"
+  assert state.last_seen_in_advert["025055A6AAAA"] == now - 3600
+  assert set(state.peer_history_pairs) == {"025055A6BBBB|PEER1111"}
 
 
 def test_route_history_load_skips_bad_lines_and_marks_compact(

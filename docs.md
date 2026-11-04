@@ -38,6 +38,20 @@ CI builds and runs the test suite in the actual production image, including
 the pinned Node decoder. Local amd64 verification does not prove arm64
 runtime or hosted publication; verify those independently before release.
 
+## Node identity and historical records
+
+Device records are keyed by their complete device ID. Live updates for the same
+ID replace that record in place and preserve its existing peer history. Different
+IDs remain separate even when names, abbreviated key prefixes, and coordinates
+match; activity counts are not evidence that two identities are the same. Route
+hash collisions remain collisions and retain their normal ambiguity safeguards.
+
+Loading persisted state follows the same identity rule. The upgrade does not
+retroactively authenticate old metadata, restore records already lost by an older
+heuristic, or delete historical corrupt nodes. Continue to use configured
+retention for inactive records; any immediate historical cleanup needs verified
+complete IDs and a backed-up, explicitly scoped procedure.
+
 ## Versioning
 - `VERSION.txt` holds the current version string (`1.9.9`).
 - `VERSIONS.md` is an append-only changelog by version.
