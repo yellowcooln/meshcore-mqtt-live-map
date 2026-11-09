@@ -8,7 +8,7 @@ Thanks for helping improve the MeshCore Live Map. This repo is intentionally lig
 3) Verify: `curl -s http://localhost:8080/snapshot`
 
 ## Versioning
-- Current version: `1.9.8` (see `VERSIONS.md`).
+- Current version: `1.9.9` (see `VERSIONS.md`).
 - Update `VERSION.txt` when adding features.
 - Append a new section to `VERSIONS.md` describing the change set.
 
@@ -50,6 +50,24 @@ Thanks for helping improve the MeshCore Live Map. This repo is intentionally lig
 - Neighbor overrides: `NEIGHBOR_OVERRIDES_FILE` can force adjacency pairs for hash collisions.
 
 ## UI Changes
+
+### Browser layout regression
+
+For HUD/Peers/attribution layout changes, start an isolated app without production
+credentials or data, then use a separate test environment:
+
+```sh
+python -m pip install playwright
+python -m playwright install chromium
+python tools/check-frontend-layout.py http://127.0.0.1:8080/map --output layout-evidence
+```
+
+The check uses production markup, scripts, and CSS with synthetic peer rows and
+mocked map-provider responses. It checks four viewport sizes across standard,
+dark, and satellite layers, saving screenshots and geometry results. It does not
+verify real provider rendering, live MQTT traffic, or physical Windows/mobile
+browsers. Keep generated evidence outside the repository when preparing commits.
+
 When adding UI controls:
 - Wire the toggle into `app.js`.
 - Add styles to `styles.css` (don’t inline).

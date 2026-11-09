@@ -1,7 +1,7 @@
 # Mesh Map Live: Implementation Notes
 
 This document captures the state of the project and the key changes made so far, so a new Codex session can pick up without losing context.
-Current version: `1.9.8` (see `VERSIONS.md`).
+Current version: `1.9.9` (see `VERSIONS.md`).
 
 ## Overview
 This project renders live MeshCore traffic on a Leaflet + OpenStreetMap map. A FastAPI backend subscribes to MQTT (WSS/TLS or TCP), decodes MeshCore packets using the official [`@michaelhart/meshcore-decoder`](https://www.npmjs.com/package/@michaelhart/meshcore-decoder), and broadcasts device updates and routes over WebSockets to the frontend. Core logic is split into config/state/decoder/LOS/history modules so changes are localized. The UI includes heatmap, LOS tools, map mode toggles, and a 24-hour route history layer.
@@ -38,8 +38,61 @@ CI builds and runs the test suite in the actual production image, including
 the pinned Node decoder. Local amd64 verification does not prove arm64
 runtime or hosted publication; verify those independently before release.
 
+## Node identity and historical records
+
+Device records are keyed by their complete device ID. Live updates for the same
+ID replace that record in place and preserve its existing peer history. Different
+IDs remain separate even when names, abbreviated key prefixes, and coordinates
+match; activity counts are not evidence that two identities are the same. Route
+hash collisions remain collisions and retain their normal ambiguity safeguards.
+
+Loading persisted state follows the same identity rule. The upgrade does not
+retroactively authenticate old metadata, restore records already lost by an older
+heuristic, or delete historical corrupt nodes. Continue to use configured
+retention for inactive records; any immediate historical cleanup needs verified
+complete IDs and a backed-up, explicitly scoped procedure.
+
+## Browser update scheduling
+
+Realtime updates remain FIFO and are not coalesced or dropped to meet a frame
+budget. Each drain targets 4 ms of handler work with a 128-message ceiling; one
+expensive handler or browser GC can exceed that target. Pending work continues
+on later animation frames, with the 1-second timer fallback preserved when
+frames do not run. This trades longer total catch-up time for responsiveness
+during very large bursts; ordinary low-rate updates still use the next frame.
+
+Hidden pages, including those initially hidden, pause their WebSocket after
+60 seconds. Disconnects and replacement snapshots cancel old queued work and
+reset the queue cursor; reconnect snapshots remain authoritative. The snapshot
+itself is not time-sliced. A short heap sample is not proof of long-session
+memory stability, and external basemap/heat/animation costs require separate
+profiling before changing their rendering or retention semantics.
+
+After the first accepted WebSocket snapshot, a late startup HTTP response is
+ignored before any state mutation, even if the socket has since disconnected.
+Socket-open alone does not disable HTTP fallback; HTTP-first loading and normal
+WebSocket reconciliation remain supported. Snapshot server time is not a total
+ordering/version protocol. The HTTP fallback batches HUD scans while applying
+data and restores normal stats updates with `finally`, including on render
+errors; it does not time-slice or shrink the snapshot payload.
+
+Node popups use Leaflet content callbacks so closed markers do not format or
+retain eagerly rebuilt popup HTML. The callback reads the current device record
+on opening; visible popups also refresh on live updates and the periodic status
+refresh. Keep the popup content-update action binding: replacing visible content
+must not break copy/location/link/QR buttons or attach duplicate handlers. Marker
+styles, online expiry and viewport membership still refresh independently of
+popup visibility.
+
+Refresh the service-worker cache generation when shipping changed static
+assets, including same-version dev builds. Static lookups must use the current
+cache name: a retired worker can finish a write after activation cleanup, so a
+global cross-generation lookup can resurrect old frontend code. Already-open
+pages keep their running JavaScript until reloaded; updated assets remain
+cache-first/offline-capable after the new worker takes control.
+
 ## Versioning
-- `VERSION.txt` holds the current version string (`1.9.8`).
+- `VERSION.txt` holds the current version string (`1.9.9`).
 - `VERSIONS.md` is an append-only changelog by version.
 
 ## Key Paths

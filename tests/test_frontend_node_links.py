@@ -17,8 +17,7 @@ def _function(source, name, next_name):
   return source[start:end].strip().removesuffix("async")
 
 
-@pytest.mark.parametrize("refresh", ["upsert", "presence", "device_seen"])
-def test_open_marker_popup_copies_its_node_after_content_refresh(refresh):
+def _run_popup_case(case, refresh=None):
   source = APP_JS.read_text(encoding="utf-8")
   functions = "\n".join([
     _function(source, "upsertDevice", "removeDevices"),
@@ -59,7 +58,11 @@ const updateMarkerLabel = () => {}, syncLayerMembership = () => {};
 const refreshStats = () => {}, refreshViewportLayers = () => {};
 const applyMqttPresenceSummary = () => {};
 const copyPopupText = () => {}, handleQrPopupClick = () => {};
-const makePopup = device => device.device_id;
+const popupBuilds = [];
+const makePopup = device => {
+  popupBuilds.push({...device});
+  return device.device_id;
+};
 const copyTextWithFallback = async text => {copies.push(text); return true;};
 
 // Leaflet replaces popup innerHTML on setContent and emits contentupdate,
@@ -86,7 +89,8 @@ class Popup {
   getElement() {return this.root;}
   update() {
     if (!this.root) return;
-    const button = new Button(this.id);
+    const id = typeof this.id === 'function' ? this.id() : this.id;
+    const button = new Button(id);
     this.root = {button, querySelectorAll: selector =>
       selector.includes('data-node-link-id') ? [button] : []};
     for (const callback of this.events.contentupdate || []) callback({});
@@ -104,6 +108,8 @@ class Marker {
   }
   bindPopup(id) {this.popup = new Popup(id); return this;}
   getPopup() {return this.popup;}
+  isPopupOpen() {return this.popup?.root != null;}
+  closePopup() {this.popup.root = null;}
   setPopupContent(id) {this.popup.id = id; this.popup.update();}
   setLatLng(coords) {this.coords = coords;}
   getLatLng() {return {lat: this.coords[0], lng: this.coords[1]};}
@@ -116,6 +122,20 @@ class Marker {
 }
 const L = {circleMarker: coords => new Marker(coords)};
 __FUNCTIONS__
+__CASE__
+"""
+  script = script.replace("__FUNCTIONS__", functions)
+  script = script.replace("__CASE__", case)
+  script = script.replace("__REFRESH__", json.dumps(refresh))
+  result = subprocess.run(
+    ["node", "-e", script], capture_output=True, text=True, timeout=15)
+  assert result.returncode == 0, result.stderr
+  return json.loads(result.stdout)
+
+
+@pytest.mark.parametrize("refresh", ["upsert", "presence", "device_seen"])
+def test_open_marker_popup_copies_its_node_after_content_refresh(refresh):
+  case = r"""
 (async () => {
   // No search/focusDevice call: directly click the node's marker.
   upsertDevice(nodeA);
@@ -152,9 +172,38 @@ __FUNCTIONS__
   console.log(JSON.stringify({copies: copies.length, node: url.searchParams.get('node')}));
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """
-  script = script.replace("__FUNCTIONS__", functions)
-  script = script.replace("__REFRESH__", json.dumps(refresh))
-  result = subprocess.run(
-    ["node", "-e", script], capture_output=True, text=True, timeout=15)
-  assert result.returncode == 0, result.stderr
-  assert json.loads(result.stdout)["copies"] == 3
+  assert _run_popup_case(case, refresh)["copies"] == 3
+
+
+def test_closed_popups_render_only_when_opened_with_latest_device_data():
+  case = r"""
+upsertDevice(nodeA);
+upsertDevice(nodeB);
+assert.equal(popupBuilds.length, 0,
+  'closed markers must not eagerly format popup HTML at creation');
+const marker = markers.get(nodeB.device_id);
+upsertDevice({...nodeB, name: 'Updated name', lat: 35.6, rssi: -91});
+handleRealtimeMessage({type: 'device_seen', device_id: nodeB.device_id,
+  last_seen_ts: 1234567890, mqtt_seen_ts: 1234567890});
+refreshOnlineMarkers();
+assert.equal(popupBuilds.length, 0,
+  'closed popups need no rebuild on update, presence or periodic refresh');
+marker.openPopup();
+assert.equal(popupBuilds.length, 1);
+assert.equal(popupBuilds[0].name, 'Updated name');
+assert.equal(popupBuilds[0].lat, 35.6);
+assert.equal(popupBuilds[0].rssi, -91);
+assert.equal(popupBuilds[0].last_seen_ts, 1234567890);
+assert.equal(popupBuilds[0].mqtt_seen_ts, 1234567890);
+marker.closePopup();
+handleRealtimeMessage({type: 'device_seen', device_id: nodeB.device_id,
+  last_seen_ts: 1234567999, mqtt_status_value: 'offline'});
+refreshOnlineMarkers();
+assert.equal(popupBuilds.length, 1);
+marker.openPopup();
+assert.equal(popupBuilds.length, 2);
+assert.equal(popupBuilds[1].last_seen_ts, 1234567999);
+assert.equal(popupBuilds[1].mqtt_status_value, 'offline');
+console.log(JSON.stringify({builds: popupBuilds.length}));
+"""
+  assert _run_popup_case(case)["builds"] == 2

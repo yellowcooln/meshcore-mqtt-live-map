@@ -72,6 +72,14 @@ def test_peer_rows_render_a_fixed_rank_column():
   assert "font-variant-numeric: tabular-nums;" in css
 
 
+def test_peer_grid_can_shrink_without_clipping_distances():
+  css = STYLES_CSS.read_text(encoding="utf-8")
+  list_rules = css.split(".peer-list {", 1)[1].split("}", 1)[0]
+  row_rules = css.split(".peer-item {", 1)[1].split("}", 1)[0]
+  assert "grid-template-columns: minmax(0, 1fr);" in list_rules
+  assert "min-width: 0;" in row_rules
+
+
 def test_unit_change_keeps_active_peer_filter_and_ranks():
   source = APP_JS.read_text(encoding="utf-8")
   set_distance_units = _extract_function(source, "setDistanceUnits")

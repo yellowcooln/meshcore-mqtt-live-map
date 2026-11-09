@@ -3,7 +3,7 @@ const meshmapHomePath = MESHMAP_APP_BASE ? `${MESHMAP_APP_BASE}/` : '/';
 const meshmapManifestPath = MESHMAP_APP_BASE
   ? `${MESHMAP_APP_BASE}/manifest.webmanifest`
   : '/manifest.webmanifest';
-const CACHE_NAME = 'meshmap-pwa-v7-maplibre6';
+const CACHE_NAME = 'meshmap-pwa-v10-propagation-worker';
 const CORE_ASSETS = [meshmapHomePath, meshmapManifestPath];
 
 self.addEventListener('install', (event) => {
@@ -23,11 +23,14 @@ self.addEventListener('activate', (event) => {
 });
 
 async function cacheFirst(request) {
-  const cached = await caches.match(request);
+  const cached = await caches.match(request, { cacheName: CACHE_NAME });
   if (cached) return cached;
   const response = await fetch(request);
-  const cache = await caches.open(CACHE_NAME);
-  cache.put(request, response.clone());
+  // Do not persist a failed worker/static response and block later retries.
+  if (response.ok) {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.put(request, response.clone());
+  }
   return response;
 }
 

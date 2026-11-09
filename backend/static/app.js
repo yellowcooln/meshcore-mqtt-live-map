@@ -1026,8 +1026,6 @@ const PROP_DEFAULTS = {
   earthRadiusM: 6371000 * (4 / 3)
 };
 
-const PROP_TERRARIUM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
-
 const PROP_MODELS = {
   free: { label: 'Best-case (free-space)', n: 2.0, clutterLossDb: 0 },
   suburban: { label: 'Suburban', n: 2.2, clutterLossDb: 6 },
@@ -1094,7 +1092,8 @@ function setStats() {
   const routeLabel = routeFiltersInactive || visibleRoutes === totalRoutes
     ? `${visibleRoutes} routes`
     : `${visibleRoutes}/${totalRoutes} routes`;
-  document.getElementById('stats').textContent = `${markers.size} active devices • ${onlineTotal} MQTT online • ${routeLabel} • ${historyLines.size} history`;
+  const historyLabel = routeHistoryEnabled ? ` • ${historyLines.size} history` : '';
+  document.getElementById('stats').textContent = `${markers.size} devices • ${onlineTotal} MQTT online • ${routeLabel}${historyLabel}`;
 }
 
 let statsFramePending = false;
@@ -4050,7 +4049,19 @@ function layoutSidePanels() {
   });
   if (!panels.length) return;
   const gap = 12;
-  const availableHeight = Math.max(200, window.innerHeight - 24);
+  const isMobile = window.matchMedia('(max-width: 900px)').matches;
+  let bottomInset = 12;
+  if (isMobile) {
+    document.querySelectorAll(
+      '.leaflet-bottom .leaflet-control, .maplibregl-ctrl-attrib'
+    ).forEach(control => {
+      const rect = control.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        bottomInset = Math.max(bottomInset, window.innerHeight - rect.top + 8);
+      }
+    });
+  }
+  const availableHeight = Math.max(200, window.innerHeight - 12 - bottomInset);
   const totalHeight = panels.reduce((sum, panel) => sum + (panel.offsetHeight || 0), 0)
     + (panels.length - 1) * gap;
   if (totalHeight > availableHeight) {
@@ -4062,9 +4073,8 @@ function layoutSidePanels() {
       panel.style.maxHeight = `${maxPer}px`;
     });
   }
-  const isMobile = window.matchMedia('(max-width: 900px)').matches;
   if (isMobile) {
-    let bottom = 12;
+    let bottom = bottomInset;
     panels.slice().reverse().forEach(panel => {
       panel.style.bottom = `${bottom}px`;
       bottom += (panel.offsetHeight || 0) + gap;
@@ -5145,218 +5155,19 @@ function markPropagationDirty(message) {
 
 function ensurePropagationWorker() {
   if (propagationWorker) return propagationWorker;
-  const workerCode = [
-    `const TILE_URL = ${JSON.stringify(PROP_TERRARIUM_URL)};`,
-    'const TILE_SIZE = 256;',
-    'const tileCache = new Map();',
-    'function clamp(value, min, max) { return Math.min(max, Math.max(min, value)); }',
-    'function lonLatToTile(lon, lat, zoom) {',
-    '  const latRad = lat * Math.PI / 180;',
-    '  const n = Math.pow(2, zoom);',
-    '  const x = n * ((lon + 180) / 360);',
-    '  const y = n * (1 - (Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI)) / 2;',
-    '  const tileX = Math.floor(x);',
-    '  const tileY = Math.floor(y);',
-    '  const px = Math.floor((x - tileX) * TILE_SIZE);',
-    '  const py = Math.floor((y - tileY) * TILE_SIZE);',
-    '  return { tileX, tileY, px: clamp(px, 0, TILE_SIZE - 1), py: clamp(py, 0, TILE_SIZE - 1) };',
-    '}',
-    'async function fetchTile(z, x, y) {',
-    '  const n = Math.pow(2, z);',
-    '  if (x < 0 || y < 0 || x >= n || y >= n) return null;',
-    '  const key = `${z}/${x}/${y}`;',
-    '  if (tileCache.has(key)) return tileCache.get(key);',
-    '  const url = TILE_URL.replace("{z}", z).replace("{x}", x).replace("{y}", y);',
-    '  try {',
-    '    const res = await fetch(url);',
-    '    if (!res.ok) { tileCache.set(key, null); return null; }',
-    '    const blob = await res.blob();',
-    '    const bitmap = await createImageBitmap(blob);',
-    '    const canvas = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);',
-    '    const ctx = canvas.getContext("2d");',
-    '    ctx.drawImage(bitmap, 0, 0);',
-    '    const data = ctx.getImageData(0, 0, TILE_SIZE, TILE_SIZE).data;',
-    '    tileCache.set(key, data);',
-    '    return data;',
-    '  } catch (err) {',
-    '    tileCache.set(key, null);',
-    '    return null;',
-    '  }',
-    '}',
-    'async function getElevation(lat, lon, zoom) {',
-    '  const coords = lonLatToTile(lon, lat, zoom);',
-    '  const tile = await fetchTile(zoom, coords.tileX, coords.tileY);',
-    '  if (!tile) return null;',
-    '  const idx = (coords.py * TILE_SIZE + coords.px) * 4;',
-    '  const r = tile[idx];',
-    '  const g = tile[idx + 1];',
-    '  const b = tile[idx + 2];',
-    '  return (r * 256 + g + b / 256) - 32768;',
-    '}',
-    'function knifeEdgeLossFromV(v) {',
-    '  if (!Number.isFinite(v) || v <= 0) return 0;',
-    '  const loss = 6.9 + 20 * Math.log10(Math.sqrt((v - 0.1) ** 2 + 1) + v - 0.1);',
-    '  return Math.max(0, loss);',
-    '}',
-    'self.onmessage = async (event) => {',
-    '  const data = event.data;',
-    '  if (!data || data.type !== "render") return;',
-    '  const { token, origins, config, renderRange, maxPathLossDb, fspl1mDb, freqMHz } = data;',
-    '  try {',
-    '    if (!Array.isArray(origins) || origins.length === 0) {',
-    '      throw new Error("No origins provided");',
-    '    }',
-    '  const latScale = 111320;',
-    '  const refLat = origins.reduce((sum, o) => sum + o.lat, 0) / origins.length;',
-    '  const lonScale = 111320 * Math.cos(refLat * Math.PI / 180);',
-    '  const latStep = config.gridStep / latScale;',
-    '  const lonStep = config.gridStep / lonScale;',
-    '  let latMin = Infinity;',
-    '  let latMax = -Infinity;',
-    '  let lonMin = Infinity;',
-    '  let lonMax = -Infinity;',
-    '  for (const origin of origins) {',
-    '    const originLonScale = 111320 * Math.cos(origin.lat * Math.PI / 180);',
-    '    const latRadius = renderRange / latScale;',
-    '    const lonRadius = renderRange / originLonScale;',
-    '    latMin = Math.min(latMin, origin.lat - latRadius);',
-    '    latMax = Math.max(latMax, origin.lat + latRadius);',
-    '    lonMin = Math.min(lonMin, origin.lon - lonRadius);',
-    '    lonMax = Math.max(lonMax, origin.lon + lonRadius);',
-    '  }',
-    '  const rows = Math.max(1, Math.ceil((latMax - latMin) / latStep));',
-    '  const cols = Math.max(1, Math.ceil((lonMax - lonMin) / lonStep));',
-    '  const zoom = clamp(Math.round(Math.log2(156543.03392 * Math.cos(refLat * Math.PI / 180) / config.gridStep)), 8, 12);',
-    '  const lambda = 299792458 / (freqMHz * 1e6);',
-    '  const clutterLossDb = Number.isFinite(config.clutterLossDb) ? config.clutterLossDb : 0;',
-    '  const originEntries = [];',
-    '  for (const origin of origins) {',
-    '    const originGround = config.useTerrain && config.txMsl == null ? await getElevation(origin.lat, origin.lon, zoom) : 0;',
-    '    const txAbs = (config.txMsl != null) ? config.txMsl : (originGround ?? 0) + config.txAgl;',
-    '    originEntries.push({',
-    '      lat: origin.lat,',
-    '      lon: origin.lon,',
-    '      lonScale: 111320 * Math.cos(origin.lat * Math.PI / 180),',
-    '      txAbs',
-    '    });',
-    '  }',
-    '  const pixels = new Uint8ClampedArray(rows * cols * 4);',
-    '  const coverage = new Uint8Array(rows * cols);',
-    '  for (let row = 0; row < rows; row++) {',
-    '    const lat = latMax - row * latStep;',
-    '    for (let col = 0; col < cols; col++) {',
-    '      const lon = lonMin + col * lonStep;',
-    '      const idx = row * cols + col;',
-    '      const offset = idx * 4;',
-    '      let bestMargin = -Infinity;',
-    '      let coverCount = 0;',
-    '      let endGround = null;',
-    '      if (config.useTerrain) {',
-    '        endGround = await getElevation(lat, lon, zoom);',
-    '        if (endGround == null) {',
-    '          pixels[offset + 3] = 0;',
-    '          continue;',
-    '        }',
-    '      }',
-    '      for (const origin of originEntries) {',
-    '        const dx = (lon - origin.lon) * origin.lonScale;',
-    '        const dy = (lat - origin.lat) * latScale;',
-    '        const distance = Math.sqrt(dx * dx + dy * dy);',
-    '        if (distance <= 1 || distance > renderRange) {',
-    '          continue;',
-    '        }',
-    '        let rxAbs = (config.rxMsl != null) ? config.rxMsl : (config.useTerrain ? endGround + config.rxAgl : origin.txAbs);',
-    '        let maxV = 0;',
-    '        let minClearanceRatio = Infinity;',
-    '        if (config.useTerrain) {',
-    '          const samples = Math.max(2, Math.ceil(distance / config.sampleStep) + 1);',
-    '          for (let i = 1; i < samples - 1; i++) {',
-    '            const t = i / (samples - 1);',
-    '            const sLat = origin.lat + (lat - origin.lat) * t;',
-    '            const sLon = origin.lon + (lon - origin.lon) * t;',
-    '            const elev = await getElevation(sLat, sLon, zoom);',
-    '            if (elev == null) continue;',
-    '            const lineElev = origin.txAbs + (rxAbs - origin.txAbs) * t;',
-    '            const d1 = distance * t;',
-    '            const d2 = distance * (1 - t);',
-    '            const f1 = Math.sqrt((lambda * d1 * d2) / (d1 + d2));',
-    '            const bulge = (d1 * d2) / (2 * config.earthRadiusM);',
-    '            const effectiveElev = elev + bulge;',
-    '            let fresnel = 0;',
-    '            if (config.fresnelFactor > 0) {',
-    '              fresnel = config.fresnelFactor * f1;',
-    '            }',
-    '            const clearance = lineElev - effectiveElev;',
-    '            if (f1 > 0) {',
-    '              const ratio = clearance / f1;',
-    '              if (ratio < minClearanceRatio) minClearanceRatio = ratio;',
-    '            }',
-    '            const obstruction = (effectiveElev - lineElev) - fresnel;',
-    '            if (obstruction <= 0) continue;',
-    '            const v = obstruction * Math.sqrt((2 * (d1 + d2)) / (lambda * d1 * d2));',
-    '            if (v > maxV) maxV = v;',
-    '          }',
-    '        }',
-    '        const extraLoss = maxV > 0 ? knifeEdgeLossFromV(maxV) : 0;',
-    '        let clearanceLoss = 0;',
-    '        if (config.useTerrain && Number.isFinite(minClearanceRatio) && minClearanceRatio < config.clearanceRatio) {',
-    '          const ratio = Math.max(-1, minClearanceRatio);',
-    '          const deficit = config.clearanceRatio - ratio;',
-    '          clearanceLoss = Math.min(config.clearanceLossDb, (deficit / config.clearanceRatio) * config.clearanceLossDb);',
-    '        }',
-    '        const pathLoss = fspl1mDb + (10 * config.pathLossExp * Math.log10(distance)) + extraLoss + clearanceLoss + clutterLossDb;',
-    '        const margin = maxPathLossDb - pathLoss;',
-    '        if (margin > 0) {',
-    '          coverCount += 1;',
-    '          if (margin > bestMargin) bestMargin = margin;',
-    '        }',
-    '      }',
-    '      if (coverCount > 0) {',
-    '        const requiredOverlap = originEntries.length >= 3 ? originEntries.length : 2;',
-    '        const strength = Math.min(1, bestMargin / 20);',
-    '        if (coverCount >= requiredOverlap) {',
-    '          pixels[offset] = 34;',
-    '          pixels[offset + 1] = 197;',
-    '          pixels[offset + 2] = 94;',
-    '        } else {',
-    '          pixels[offset] = 239;',
-    '          pixels[offset + 1] = 68;',
-    '          pixels[offset + 2] = 68;',
-    '        }',
-    '        pixels[offset + 3] = config.fadeByMargin ? Math.round(255 * strength) : 255;',
-    '        coverage[idx] = Math.min(255, coverCount);',
-    '      } else {',
-    '        pixels[offset + 3] = 0;',
-    '      }',
-    '    }',
-    '    if (row % 10 === 0) {',
-    '      self.postMessage({ type: "progress", token, row, rows });',
-    '      await new Promise((resolve) => setTimeout(resolve, 0));',
-    '    }',
-    '  }',
-    '    self.postMessage({',
-    '      type: "result",',
-    '      token,',
-    '      width: cols,',
-    '      height: rows,',
-    '      bounds: { latMin, latMax, lonMin, lonMax },',
-    '      latStep,',
-    '      lonStep,',
-    '      pixels: pixels.buffer,',
-    '      coverage: coverage.buffer',
-    '    }, [pixels.buffer, coverage.buffer]);',
-    '  } catch (err) {',
-    '    const message = (err && err.message) ? err.message : String(err);',
-    '    self.postMessage({ type: "error", token, error: message });',
-    '  }',
-    '};'
-  ].join('\n');
-
-  const blob = new Blob([workerCode], { type: 'text/javascript' });
-  propagationWorker = new Worker(URL.createObjectURL(blob));
-  propagationWorker.onmessage = (event) => {
+  const worker = new Worker(apiPath('/static/propagation-worker.js'));
+  propagationWorker = worker;
+  worker.onerror = (event) => {
+    event.preventDefault?.();
+    failPropagationRender(event.message || 'Worker failed to load or run', worker, worker.renderToken);
+  };
+  worker.onmessageerror = () => {
+    failPropagationRender('Worker message could not be decoded', worker, worker.renderToken);
+  };
+  worker.onmessage = (event) => {
     const msg = event.data;
-    if (!msg || msg.token !== propagationComputeToken) return;
+    if (worker !== propagationWorker || !propagationRenderInFlight ||
+        !msg || msg.token !== propagationComputeToken) return;
     if (msg.type === 'progress') {
       const pct = Math.round((msg.row / Math.max(1, msg.rows)) * 100);
       setPropStatus(`Rendering: ${pct}%`);
@@ -5406,11 +5217,22 @@ function ensurePropagationWorker() {
       return;
     }
     if (msg.type === 'error') {
-      setPropStatus(`Render failed: ${msg.error || 'unknown error'}`);
-      propagationRenderInFlight = false;
+      failPropagationRender(msg.error || 'unknown error', worker, msg.token);
     }
   };
   return propagationWorker;
+}
+
+// Discard failed workers so the next explicit render can start cleanly.
+function failPropagationRender(error, worker = propagationWorker, token = propagationComputeToken) {
+  if (worker !== propagationWorker) return;
+  if (worker) worker.terminate();
+  propagationWorker = null;
+  if (token !== propagationComputeToken || !propagationRenderInFlight) return;
+  propagationComputeToken += 1;
+  propagationRenderInFlight = false;
+  propagationNeedsRender = true;
+  setPropStatus(`Render failed: ${error?.message || error}. Click "Render prop" to retry.`);
 }
 
 async function ensurePropagationGpu() {
@@ -5756,32 +5578,38 @@ async function renderPropagationRaster() {
   } else {
     setPropStatus('Rendering: 0%');
   }
-  ensurePropagationWorker();
-  propagationWorker.postMessage({
-    type: 'render',
-    token,
-    origins,
-    renderRange,
-    maxPathLossDb: maxPathLoss,
-    fspl1mDb: calcFsplAt1mDb(PROP_DEFAULTS.freqMHz),
-    freqMHz: PROP_DEFAULTS.freqMHz,
-    config: {
-      gridStep: resolution.gridStep,
-      sampleStep: resolution.sampleStep,
-      pathLossExp: config.model.n,
-      clutterLossDb: config.model.clutterLossDb,
-      useTerrain: config.terrain,
-      fresnelFactor: PROP_DEFAULTS.fresnelFactor,
-      clearanceRatio: PROP_DEFAULTS.clearanceRatio,
-      clearanceLossDb: PROP_DEFAULTS.clearanceLossDb,
-      earthRadiusM: PROP_DEFAULTS.earthRadiusM,
-      txAgl: config.txAgl,
-      rxAgl: config.rxAgl,
-      txMsl: config.txMsl,
-      rxMsl: config.rxMsl,
-      fadeByMargin: config.fadeMargin
-    }
-  });
+  if (token !== propagationComputeToken) return;
+  try {
+    const worker = ensurePropagationWorker();
+    worker.renderToken = token;
+    worker.postMessage({
+      type: 'render',
+      token,
+      origins,
+      renderRange,
+      maxPathLossDb: maxPathLoss,
+      fspl1mDb: calcFsplAt1mDb(PROP_DEFAULTS.freqMHz),
+      freqMHz: PROP_DEFAULTS.freqMHz,
+      config: {
+        gridStep: resolution.gridStep,
+        sampleStep: resolution.sampleStep,
+        pathLossExp: config.model.n,
+        clutterLossDb: config.model.clutterLossDb,
+        useTerrain: config.terrain,
+        fresnelFactor: PROP_DEFAULTS.fresnelFactor,
+        clearanceRatio: PROP_DEFAULTS.clearanceRatio,
+        clearanceLossDb: PROP_DEFAULTS.clearanceLossDb,
+        earthRadiusM: PROP_DEFAULTS.earthRadiusM,
+        txAgl: config.txAgl,
+        rxAgl: config.rxAgl,
+        txMsl: config.txMsl,
+        rxMsl: config.rxMsl,
+        fadeByMargin: config.fadeMargin
+      }
+    });
+  } catch (error) {
+    failPropagationRender(error, propagationWorker, token);
+  }
 }
 
 function setPropagationOrigin(latlng, id = null) {
@@ -6462,7 +6290,8 @@ function upsertDevice(d, trail) {
   // marker
   if (!markers.has(id)) {
     const m = L.circleMarker(latlng, { ...style, renderer: vectorRenderer });
-    m.bindPopup(makePopup(d), {
+    // Leaflet evaluates content when opened; closed markers need no HTML.
+    m.bindPopup(() => makePopup(deviceData.get(id)), {
       maxWidth: 260,
       maxHeight: 320,
       autoPan: false,
@@ -6585,7 +6414,7 @@ function upsertDevice(d, trail) {
   } else {
     const m = markers.get(id);
     m.setLatLng(latlng);
-    m.setPopupContent(makePopup(d));
+    if (m.isPopupOpen()) m.getPopup().update();
     if (m.setStyle) m.setStyle(style);
     updateMarkerLabel(m, d);
     syncLayerMembership(markerLayer, m, visibleOnMap);
@@ -6690,7 +6519,7 @@ function refreshOnlineMarkers() {
     if (!d) return;
     const style = markerStyleForDevice(d);
     if (m.setStyle) m.setStyle(style);
-    if (m.getPopup()) m.setPopupContent(makePopup(d));
+    if (m.isPopupOpen()) m.getPopup().update();
   });
   refreshViewportLayers();
   refreshStats();
@@ -7021,7 +6850,19 @@ function addHeatPoints(points, tsSeconds, payloadType) {
   points.forEach(p => {
     heatPoints.push({ lat: p[0], lon: p[1], ts, weight: 0.7 });
   });
-  refreshHeatLayer();
+  scheduleHeatRefresh();
+}
+
+let heatRefreshTimer = null;
+
+// Each route adds heat points; redrawing the whole layer per route made a
+// burst of route messages redraw it hundreds of times in one frame.
+function scheduleHeatRefresh() {
+  if (heatRefreshTimer) return;
+  heatRefreshTimer = setTimeout(() => {
+    heatRefreshTimer = null;
+    refreshHeatLayer();
+  }, 2000);
 }
 
 function seedHeat(items) {
@@ -7436,33 +7277,40 @@ async function initialSnapshot() {
   try {
     const res = await fetch(withToken('/snapshot'), { headers: tokenHeaders() });
     const snap = await res.json();
-    setServerTimeOffset(snap.server_time);
-    if (snap.devices) {
-      for (const [id, d] of Object.entries(snap.devices)) {
-        const trail = snap.trails ? snap.trails[id] : null;
-        upsertDevice(d, trail);
+    // The stream supersedes this startup response, even after a disconnect.
+    if (wsSnapshotAccepted) return;
+    deferStats = true;
+    try {
+      setServerTimeOffset(snap.server_time);
+      if (snap.devices) {
+        for (const [id, d] of Object.entries(snap.devices)) {
+          const trail = snap.trails ? snap.trails[id] : null;
+          upsertDevice(d, trail);
+        }
+        tryFocusLinkedDevice();
       }
-      tryFocusLinkedDevice();
-    }
-    if (Array.isArray(snap.heat)) {
-      seedHeat(snap.heat);
-    }
-    if (Array.isArray(snap.routes)) {
-      clearRoutes();
-      snap.routes.forEach(r => upsertRoute(r, true));
-    }
-    if (Array.isArray(snap.history_edges)) {
-      if (routeHistoryEnabled) {
-        snap.history_edges.forEach(edge => upsertHistoryEdge(edge));
+      if (Array.isArray(snap.heat)) {
+        seedHeat(snap.heat);
       }
-    }
-    applyMqttPresenceSummary(snap.mqtt_presence);
-    if (snap.history_window_seconds != null) {
-      historyWindowSeconds = Number(snap.history_window_seconds);
-      updateHistoryWindowLabel(historyWindowSeconds);
-    }
-    if (snap.update) {
-      setUpdateBanner(snap.update);
+      if (Array.isArray(snap.routes)) {
+        clearRoutes();
+        snap.routes.forEach(r => upsertRoute(r, true));
+      }
+      if (Array.isArray(snap.history_edges)) {
+        if (routeHistoryEnabled) {
+          snap.history_edges.forEach(edge => upsertHistoryEdge(edge));
+        }
+      }
+      applyMqttPresenceSummary(snap.mqtt_presence);
+      if (snap.history_window_seconds != null) {
+        historyWindowSeconds = Number(snap.history_window_seconds);
+        updateHistoryWindowLabel(historyWindowSeconds);
+      }
+      if (snap.update) {
+        setUpdateBanner(snap.update);
+      }
+    } finally {
+      deferStats = false;
     }
     refreshStats();
   } catch (e) {
@@ -7471,29 +7319,115 @@ async function initialSnapshot() {
 }
 
 const pendingWsMessages = [];
+let wsSnapshotAccepted = false;
+const WS_FLUSH_FALLBACK_MS = 1000;
+const WS_FLUSH_BUDGET_MS = 4;
+const WS_FLUSH_MAX_MESSAGES = 128;
+const WS_HIDDEN_DISCONNECT_MS = 60000;
+let wsQueueHead = 0;
 let wsFlushScheduled = false;
+let wsFlushTimer = null;
+let wsFlushFrame = null;
+let ws = null;
+let wsHiddenTimer = null;
+let wsPausedForHidden = false;
+
+function cancelQueuedWsFlush() {
+  if (wsFlushTimer !== null) {
+    clearTimeout(wsFlushTimer);
+    wsFlushTimer = null;
+  }
+  if (wsFlushFrame !== null) {
+    window.cancelAnimationFrame?.(wsFlushFrame);
+    wsFlushFrame = null;
+  }
+  wsFlushScheduled = false;
+}
+
+function clearQueuedWsMessages() {
+  cancelQueuedWsFlush();
+  pendingWsMessages.length = 0;
+  wsQueueHead = 0;
+}
+
+function scheduleQueuedWsFlush() {
+  if (wsFlushScheduled || wsQueueHead >= pendingWsMessages.length) return;
+  wsFlushScheduled = true;
+  wsFlushFrame = window.requestAnimationFrame(flushQueuedWsMessages);
+  // Keep draining when animation frames are suspended, until the hidden-tab
+  // policy pauses the socket and a fresh snapshot can replace the old work.
+  wsFlushTimer = setTimeout(flushQueuedWsMessages, WS_FLUSH_FALLBACK_MS);
+}
 
 function flushQueuedWsMessages() {
-  wsFlushScheduled = false;
-  if (!pendingWsMessages.length) return;
-  const batch = pendingWsMessages.splice(0, pendingWsMessages.length);
+  cancelQueuedWsFlush();
+  if (wsQueueHead >= pendingWsMessages.length) return;
+  const started = performance.now();
+  let processed = 0;
   deferStats = true;
   try {
-    for (const msg of batch) {
+    while (wsQueueHead < pendingWsMessages.length) {
+      const msg = pendingWsMessages[wsQueueHead];
+      pendingWsMessages[wsQueueHead++] = null;
       handleRealtimeMessage(msg);
+      processed++;
+      if (processed >= WS_FLUSH_MAX_MESSAGES ||
+          performance.now() - started >= WS_FLUSH_BUDGET_MS) break;
     }
   } finally {
     deferStats = false;
+    if (wsQueueHead >= pendingWsMessages.length) {
+      pendingWsMessages.length = 0;
+      wsQueueHead = 0;
+    } else if (wsQueueHead >= 1024 && wsQueueHead * 2 >= pendingWsMessages.length) {
+      // Release processed slots without shifting the entire array per event.
+      pendingWsMessages.splice(0, wsQueueHead);
+      wsQueueHead = 0;
+    }
+    scheduleStatsUpdate();
+    scheduleQueuedWsFlush();
   }
-  scheduleStatsUpdate();
 }
 
 function queueRealtimeMessage(msg) {
   pendingWsMessages.push(msg);
-  if (wsFlushScheduled) return;
-  wsFlushScheduled = true;
-  window.requestAnimationFrame(flushQueuedWsMessages);
+  scheduleQueuedWsFlush();
 }
+
+// Nobody sees a hidden tab, so after a minute hidden drop the socket rather
+// than process updates all night. The server sends a full snapshot on
+// connect, so reconnecting when the tab is shown catches the map up.
+function pauseWsWhileHidden() {
+  wsHiddenTimer = null;
+  if (!document.hidden) return;
+  wsPausedForHidden = true;
+  clearQueuedWsMessages();
+  if (ws) {
+    const socket = ws;
+    ws = null;
+    socket.close();
+  }
+}
+
+function handleWsVisibilityChange() {
+  if (document.hidden) {
+    if (!wsHiddenTimer) {
+      wsHiddenTimer = setTimeout(pauseWsWhileHidden, WS_HIDDEN_DISCONNECT_MS);
+    }
+    return;
+  }
+  if (wsHiddenTimer) {
+    clearTimeout(wsHiddenTimer);
+    wsHiddenTimer = null;
+  }
+  if (wsPausedForHidden) {
+    wsPausedForHidden = false;
+    connectWS();
+  }
+}
+document.addEventListener('visibilitychange', handleWsVisibilityChange);
+// A page opened in a background tab may start hidden without a change event.
+handleWsVisibilityChange();
 
 function handleRealtimeMessage(msg) {
   if (msg.type === "update") {
@@ -7518,7 +7452,7 @@ function handleRealtimeMessage(msg) {
       const m = markers.get(id);
       if (m) {
         if (m.setStyle) m.setStyle(markerStyleForDevice(d));
-        m.setPopupContent(makePopup(d));
+        if (m.isPopupOpen()) m.getPopup().update();
         updateMarkerLabel(m, d);
       }
       refreshStats();
@@ -7563,25 +7497,37 @@ function handleRealtimeMessage(msg) {
 }
 
 function connectWS() {
+  if (wsPausedForHidden || ws) return;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const wsSuffix = (prodMode && apiToken) ? `?token=${encodeURIComponent(apiToken)}` : '';
-  const ws = new WebSocket(`${proto}://${location.host}${apiPath('/ws')}${wsSuffix}`);
+  const socket = new WebSocket(`${proto}://${location.host}${apiPath('/ws')}${wsSuffix}`);
+  ws = socket;
 
-  ws.onopen = () => console.log("ws connected");
-  ws.onclose = () => {
+  socket.onopen = () => console.log("ws connected");
+  socket.onclose = () => {
+    if (ws !== socket) return;
+    ws = null;
+    clearQueuedWsMessages();
     console.log("ws disconnected, retrying...");
     setTimeout(connectWS, 1500);
   };
 
-  ws.onmessage = (ev) => {
+  socket.onmessage = (ev) => {
+    if (ws !== socket) return;
     const msg = JSON.parse(ev.data);
 
     if (msg.type === "snapshot") {
-      // same shape as /snapshot
+      wsSnapshotAccepted = true;
+      // The snapshot replaces earlier work; a sliced old drain must not replay
+      // over it after this connection's authoritative state has been applied.
+      clearQueuedWsMessages();
       setServerTimeOffset(msg.server_time);
       deferStats = true;
       try {
-        for (const [id, d] of Object.entries(msg.devices || {})) {
+        const snapDevices = msg.devices || {};
+        const goneIds = Array.from(deviceData.keys()).filter(id => !(id in snapDevices));
+        if (goneIds.length) removeDevices(goneIds);
+        for (const [id, d] of Object.entries(snapDevices)) {
           const trail = msg.trails ? msg.trails[id] : null;
           upsertDevice(d, trail);
         }
@@ -7595,6 +7541,8 @@ function connectWS() {
         }
         if (Array.isArray(msg.history_edges)) {
           if (routeHistoryEnabled) {
+            clearHistoryLayer();
+            historyCache.clear();
             msg.history_edges.forEach(edge => upsertHistoryEdge(edge));
           }
         }
@@ -8173,6 +8121,13 @@ document.addEventListener('click', (ev) => {
   searchResults.hidden = true;
   searchResults.innerHTML = '';
 });
+// Provider/coverage credits can wrap or change after a layer switch without a
+// viewport resize. Keep mobile panels above the complete, visible attribution.
+const attributionContainer = map.attributionControl?.getContainer();
+if (attributionContainer && typeof ResizeObserver === 'function') {
+  const attributionResizeObserver = new ResizeObserver(() => layoutSidePanels());
+  attributionResizeObserver.observe(attributionContainer);
+}
 window.addEventListener('resize', () => {
   positionRouteNodeFilterResults();
   layoutSidePanels();

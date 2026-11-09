@@ -8,6 +8,23 @@
       height: 100%;
     }
 
+    .leaflet-container .leaflet-control-attribution,
+    .maplibregl-map .maplibregl-ctrl-attrib {
+      box-sizing: border-box;
+      max-width: calc(100vw - 12px);
+      background: rgba(15, 23, 42, .9);
+      color: #e2e8f0;
+      font-size: 11px;
+      line-height: 1.25;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .leaflet-container .leaflet-control-attribution a,
+    .maplibregl-map .maplibregl-ctrl-attrib a {
+      color: #7dd3fc;
+    }
+
     .hud {
       position: absolute;
       top: 10px;
@@ -1346,6 +1363,7 @@
 
     .peer-list {
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
       gap: 4px;
       align-content: start;
       overflow-y: auto;
@@ -1356,6 +1374,7 @@
     }
 
     .peer-item {
+      min-width: 0;
       display: flex;
       align-items: center;
       justify-content: space-between;

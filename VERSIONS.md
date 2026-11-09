@@ -1,5 +1,20 @@
 # Versions
 
+## v1.9.9 (11-04-2026)
+- Fix Propagation renders stuck at 0% by loading a same-origin static worker without relaxing the worker CSP. Recover from worker startup, messaging and render failures with an explicit retry, ignore stale/cancelled work, and refresh the PWA asset cache (including subpath worker caching) without caching failed asset responses.
+- Updated Paho MQTT from `2.1.0` to `2.2.0` and MapLibre GL from `6.15.0` to `6.16.0` through PRs #120 and #121.
+- Prevent a delayed startup HTTP snapshot from overwriting an accepted WebSocket snapshot or subsequent live updates, including across disconnects/reconnects. Keep HTTP fallback until the stream supplies a snapshot, and batch its HUD statistics instead of rescanning the full map for every loaded device, route and history edge.
+- Refresh the PWA static-asset cache generation and restrict static lookups to that generation, so an older service worker finishing a cache write cannot make the updated worker serve stale frontend code. Preserve offline caching of the updated assets, including subpath deployments.
+- Render node popups on demand instead of rebuilding every closed popup during initial loading, live updates and the 30-second marker refresh. Open popups still update live; reopened popups use current metadata, Last Contact and MQTT state, with copy, node-link and QR actions preserved.
+- Keep the browser responsive during large WebSocket bursts by draining ordered updates in short, time-budgeted slices instead of processing the whole backlog in one frame. Preserve the fallback flush and hidden-tab pause; cancel queued old-connection work on disconnect or replacement snapshots so stale updates cannot overwrite fresh state.
+- Preserve distinct full-key node identities during state loading and live updates. Matching names, short public-key prefixes, nearby coordinates, or stronger peer activity no longer authorize deleting another node or transferring its peer history. Same-ID updates still replace the existing record, and normal signature checks, visibility filters, hash-collision handling and retention remain unchanged. Historical corrupt records are not automatically cleaned or previously lost records reconstructed.
+- Integrated [PR #109](https://github.com/yellowcooln/meshcore-mqtt-live-map/pull/109) by [anieto](https://github.com/anieto): prevent background-tab WebSocket updates from accumulating behind paused animation frames with a fallback flush, pause the socket after 60 seconds hidden (including pages opened in a background tab), and reconnect with a fresh snapshot when shown. Reconnect snapshots remove expired devices/history edges, and heat redraws are batched instead of repeated for every route.
+- Fixed the HUD status summary overflowing with filtered route counts: shortened `active devices` to `devices` and omitted the history count when Route History is disabled.
+- Fixed Peers list rows expanding beyond their scrollable column and clipping packet percentages or distances. Long names now yield space to the numeric columns while retaining their full hover title and fixed ranks.
+- Made map credits more compact and legible while preserving provider attribution and the Privacy link. Mobile tool panels now clear the measured attribution and zoom controls, including after layer changes or wrapped credit updates.
+- Updated the development test runner from pytest `9.1.1` to `9.2.0` through PR #119.
+- Integrated dependency PRs #116 and #118 into `dev`, retaining the existing newer Python `3.15.1-slim` runtime and FastAPI `0.162.0` pin. Preserved HTTPX2 `2.16.0` while resolving the overlapping development-requirements update.
+
 ## v1.9.8 (10-24-2026)
 - Integrated dependency PRs #110–#114, retaining both Pillow proposal heads in Git history. Updated FastAPI to `0.162.0`, Pillow to `13.0.0`, and development HTTPX2 to `2.16.0`.
 - Migrated the Docker runtime to Python `3.15.1-slim` and official Node `24.22.1` on Debian trixie, refreshed tzdata, and retained npm 11 only in the build stage. The real packet decoder remains `0.3.0` with its upstream-owned transitive major constraints unchanged.
