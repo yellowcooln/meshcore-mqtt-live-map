@@ -1,6 +1,7 @@
 # Versions
 
 ## v1.9.9 (11-04-2026)
+- Updated Paho MQTT from `2.1.0` to `2.2.0` and MapLibre GL from `6.15.0` to `6.16.0` through PRs #120 and #121.
 - Prevent a delayed startup HTTP snapshot from overwriting an accepted WebSocket snapshot or subsequent live updates, including across disconnects/reconnects. Keep HTTP fallback until the stream supplies a snapshot, and batch its HUD statistics instead of rescanning the full map for every loaded device, route and history edge.
 - Refresh the PWA static-asset cache generation and restrict static lookups to that generation, so an older service worker finishing a cache write cannot make the updated worker serve stale frontend code. Preserve offline caching of the updated assets, including subpath deployments.
 - Render node popups on demand instead of rebuilding every closed popup during initial loading, live updates and the 30-second marker refresh. Open popups still update live; reopened popups use current metadata, Last Contact and MQTT state, with copy, node-link and QR actions preserved.
