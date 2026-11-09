@@ -1,6 +1,7 @@
 # Versions
 
 ## v1.9.9 (11-04-2026)
+- Fix Propagation renders stuck at 0% by loading a same-origin static worker without relaxing the worker CSP. Recover from worker startup, messaging and render failures with an explicit retry, ignore stale/cancelled work, and refresh the PWA asset cache (including subpath worker caching) without caching failed asset responses.
 - Updated Paho MQTT from `2.1.0` to `2.2.0` and MapLibre GL from `6.15.0` to `6.16.0` through PRs #120 and #121.
 - Prevent a delayed startup HTTP snapshot from overwriting an accepted WebSocket snapshot or subsequent live updates, including across disconnects/reconnects. Keep HTTP fallback until the stream supplies a snapshot, and batch its HUD statistics instead of rescanning the full map for every loaded device, route and history edge.
 - Refresh the PWA static-asset cache generation and restrict static lookups to that generation, so an older service worker finishing a cache write cannot make the updated worker serve stale frontend code. Preserve offline caching of the updated assets, including subpath deployments.
