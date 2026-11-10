@@ -409,7 +409,12 @@ Boundary mode:
   - Returns incoming/outgoing neighbors with counts/percentages from route history.
 
 ## License
-[GPL-3.0](https://github.com/yellowcooln/meshcore-mqtt-live-map?tab=License-1-ov-file#).
+
+Copyright (c) 2026 yellowcooln and contributors.
+
+Licensed under the [GNU General Public License version 3 only](./LICENSE) (`GPL-3.0-only`). You may use, modify, and redistribute this software under its terms. Distributed modified versions must be licensed under GPL version 3 and include the corresponding source as required by the license. This software comes without warranty.
+
+Third-party dependencies and assets retain their own licenses and notices.
 
 ---
 
