@@ -1,7 +1,19 @@
 # How-To: MQTT Broker + Live Map
 
-This guide covers two parts: stand up a MeshCore MQTT broker and point the live map at it.
-Current version: `1.9.9` (see `VERSIONS.md`).
+[README](./README.md) · [Configuration and API reference](./docs.md) · [Release history](./VERSIONS.md)
+
+## Start here
+
+To use an existing broker, start with the [prebuilt-image quick start](./README.md#run-the-prebuilt-docker-image). You do not need to deploy your own broker or clone the source to use that image.
+
+This guide includes optional broker setup and more detailed map configuration. Its broker examples describe a separate project; consult that project's current documentation before installing it. Commands and paths below are examples, not verified host settings.
+
+- [Optional broker setup](#1-mqtt-broker-meshcore-mqtt-broker)
+- [Map configuration](#2-configure-the-live-map)
+- [Source build](#3-run-the-map)
+- [Prebuilt image](#3b-use-the-prebuilt-docker-image-instead)
+- [Verify data flow](#4-verify-data-flow)
+- [Updates and backups](#updates-and-backups)
 
 Useful UI defaults in the live map `.env`:
 - `HEAT_DEFAULT_ON=true|false` sets the default Heat toggle state for first load.
@@ -132,7 +144,7 @@ git clone https://github.com/yellowcooln/meshcore-mqtt-live-map
 cd meshcore-mqtt-live-map
 ```
 
-Copy `.env.example` to `.env` and update MQTT settings. The map expects MQTT over WebSockets by default:
+Copy `.env.example` to `.env` and update MQTT settings to match your broker. The following example uses TLS over WebSockets; TCP is also supported:
 
 ```env
 MQTT_HOST=your-mqtt-host
@@ -195,10 +207,10 @@ To enable those optional CARTO surfaces:
    CARTO_BASEMAP_KEY=your-carto-key
    ```
 
-4. Recreate the container so it receives the new environment:
+4. With the intended image already built or pulled, recreate the service so it receives the new environment:
 
    ```bash
-   docker compose up -d --force-recreate
+   docker compose up -d --no-build --pull never --force-recreate meshmap
    ```
 
 5. Verify Satellite labels and a shared `lat`/`lon`/`zoom` URL's generated dark
@@ -416,3 +428,22 @@ curl -s http://localhost:8080/stats | jq
 Notes:
 - The map only places nodes once it decodes adverts that include a valid location.
 - If no nodes appear, verify the MQTT topic and that the broker is sending `/packets` data with raw hex payloads.
+
+In production mode, protected data endpoints require `PROD_TOKEN`; a Turnstile browser cookie is not enough. See [production access](./docs.md#production-token). Check logs with `docker compose logs --tail=100 -f meshmap`; `meshmap-live` is the default container name, not the Compose service name.
+
+## Updates and backups
+
+Preserve `.env`, data, backup archives, Compose overrides, and custom assets. Compare new template settings with your configuration instead of overwriting it. For a consistent manual state copy, stop only this service while taking the copy, then start it again.
+
+For published-image installs:
+
+```bash
+docker compose pull meshmap
+docker compose up -d --no-build --pull never --force-recreate meshmap
+```
+
+For source builds, select the intended revision while preserving local configuration, run `docker compose build meshmap`, then use the same recreate command. A plain `docker compose restart` does not reload Compose env-file values.
+
+Do not bind-mount a copied `app.py` over `/app/app.py`: it masks new image fixes. Reconcile any existing whole-file overrides before upgrading. The Compose healthcheck marks MQTT/broadcaster failures unhealthy, but Compose does not restart unhealthy containers automatically.
+
+Optional automatic archives are disabled in the template. To enable them, use `BACKUP_ENABLED=true`, keep `/backup` mounted, and configure interval/retention in `.env`. Verify archives separately from a full application restore. See [configuration reference](./docs.md#configuration-reference).
