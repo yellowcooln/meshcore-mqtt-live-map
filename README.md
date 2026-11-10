@@ -23,8 +23,6 @@
 
 ![Live MeshCore map showing nodes and animated routes](./live-map-example.gif)
 
-<p align="center"><em>Nodes, decoded packet paths, and recent activity on one live map.</em></p>
-
 ## Features
 
 - Live node markers, explicit device roles, node search, and MQTT presence indicators.
