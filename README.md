@@ -21,7 +21,7 @@
   <a href="https://github.com/yellowcooln/meshcore-mqtt-live-map/issues">Report an issue</a>
 </p>
 
-![Live MeshCore map showing nodes, activity heat, and animated routes](./example.gif)
+![Live MeshCore map showing nodes and animated routes](./live-map-example.gif)
 
 <p align="center"><em>Nodes, decoded packet paths, and recent activity on one live map.</em></p>
 
@@ -200,7 +200,11 @@ Community deployments may run different versions and configurations.
 
 Packet decoding uses [`@michaelhart/meshcore-decoder`](https://www.npmjs.com/package/@michaelhart/meshcore-decoder). Development route inspection was contributed by [sefator](https://github.com/sefator); propagation antenna-gain improvements credit C2D.
 
-[GPL-3.0](https://github.com/yellowcooln/meshcore-mqtt-live-map?tab=License-1-ov-file#).
+Copyright (c) 2026 yellowcooln and contributors.
+
+Licensed under the [GNU General Public License version 3 only](./LICENSE) (`GPL-3.0-only`). You may use, modify, and redistribute this software under its terms. Distributed modified versions must be licensed under GPL version 3 and include the corresponding source as required by the license. This software comes without warranty.
+
+Third-party dependencies and assets retain their own licenses and notices.
 
 ## About these projects
 
