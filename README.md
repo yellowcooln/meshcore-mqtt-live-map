@@ -1,4 +1,4 @@
-<h1 align="center">Mesh Live Map</h1>
+<h1 align="center">MeshCore Live Map</h1>
 
 <p align="center">
   Watch your MeshCore network in real time.<br />
