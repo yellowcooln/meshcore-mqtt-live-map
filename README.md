@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://live.bostonme.sh/">Live demo</a> &middot;
+  <a href="https://map.newenglandme.sh/">Live demo</a> &middot;
   <a href="#quick-start">Quick start</a> &middot;
   <a href="./docs.md">Documentation</a> &middot;
   <a href="#configuration">Configuration</a> &middot;
@@ -188,23 +188,6 @@ pytest -q
 - [Southern Poland](https://mcmap.cheaterenator.trade/)
 
 Community deployments may run different versions and configurations.
-
-<details>
-<summary>Another live map preview</summary>
-
-![Additional live map preview](./example2.gif)
-
-</details>
-
-## Credits and license
-
-Packet decoding uses [`@michaelhart/meshcore-decoder`](https://www.npmjs.com/package/@michaelhart/meshcore-decoder). Development route inspection was contributed by [sefator](https://github.com/sefator); propagation antenna-gain improvements credit C2D.
-
-Copyright (c) 2026 yellowcooln and contributors.
-
-Licensed under the [GNU General Public License version 3 only](./LICENSE) (`GPL-3.0-only`). You may use, modify, and redistribute this software under its terms. Distributed modified versions must be licensed under GPL version 3 and include the corresponding source as required by the license. This software comes without warranty.
-
-Third-party dependencies and assets retain their own licenses and notices.
 
 ## About these projects
 
