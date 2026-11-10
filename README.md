@@ -187,6 +187,8 @@ pytest -q
 
 Community deployments may run different versions and configurations.
 
+Running a map for your mesh? If you'd like it listed here, [open an issue](https://github.com/yellowcooln/meshcore-mqtt-live-map/issues/new) with your mesh name and map URL.
+
 ## About these projects
 
 I build these projects with the help of AI when I see a need for software I want to use myself. The goal is to make something useful, run it on my own systems, and share it with anyone else who might find it helpful.
