@@ -1,7 +1,19 @@
-# Mesh Map Live: Implementation Notes
+# Mesh Live Map Reference
 
-This document captures the state of the project and the key changes made so far, so a new Codex session can pick up without losing context.
-Current version: `1.9.9` (see `VERSIONS.md`).
+Feature behavior, configuration, and API details for Mesh Live Map.
+Start with the [README quick start](./README.md#quick-start) or the
+[deployment guide](./howto.md). See [VERSIONS.md](./VERSIONS.md) for releases.
+
+## Contents
+
+- [Overview](#overview)
+- [Runtime and frontend assets](#runtime-and-frontend-asset-maintenance)
+- [Feature behavior](#frontend-ui)
+- [Line of sight](#los-line-of-sight-tool)
+- [Persistence](#persistence)
+- [Configuration reference](#configuration-reference)
+- [Production token](#production-token)
+- [API](#api)
 
 ## Overview
 This project renders live MeshCore traffic on a Leaflet + OpenStreetMap map. A FastAPI backend subscribes to MQTT (WSS/TLS or TCP), decodes MeshCore packets using the official [`@michaelhart/meshcore-decoder`](https://www.npmjs.com/package/@michaelhart/meshcore-decoder), and broadcasts device updates and routes over WebSockets to the frontend. Core logic is split into config/state/decoder/LOS/history modules so changes are localized. The UI includes heatmap, LOS tools, map mode toggles, and a 24-hour route history layer.
@@ -18,7 +30,7 @@ For non-Docker development, use Node 24 and run `npm ci --prefix backend`
 then `npm run build:assets --prefix backend` before serving the app. Generated
 `backend/static/vendor/` files are ignored; `backend/package-lock.json` is the
 authoritative integrity-checked source. Docker performs these steps itself.
-MapLibre `6.15.0` is ESM-only: `map-renderer.mjs` imports its namespace, then the
+MapLibre `6.16.0` is ESM-only: `map-renderer.mjs` imports its namespace, then the
 Leaflet bridge, then starts the existing classic `app.js`. Keep its entry,
 shared module, and module worker together. The worker is same-origin and the
 page's CSP restricts `worker-src` to `'self'` without `blob:` or `unsafe-eval`.
@@ -92,7 +104,7 @@ pages keep their running JavaScript until reloaded; updated assets remain
 cache-first/offline-capable after the new worker takes control.
 
 ## Versioning
-- `VERSION.txt` holds the current version string (`1.9.9`).
+- `VERSION.txt` holds the current version string; avoid maintaining a second version value in this guide.
 - `VERSIONS.md` is an append-only changelog by version.
 
 ## Key Paths
@@ -117,14 +129,16 @@ cache-first/offline-capable after the new worker takes control.
 - `.env`: dev configuration (mirrors template variables).
 
 ## Runtime Commands (Typical Workflow)
-- `docker compose up -d --build` (run after any file changes).
-- `docker compose logs -f meshmap-live` (watch MQTT + decode logs).
+- Source build: `docker compose up -d --build meshmap`.
+- Published-image updates: pull the image, then recreate `meshmap` with `--no-build`.
+- After `.env` changes, recreate the service; a plain restart does not reload env-file values.
+- `docker compose logs -f meshmap` (watch MQTT + decode logs).
 - DockerHub publishing is handled by `.github/workflows/docker-publish.yml`.
 - `curl -s http://localhost:8080/snapshot` (current device map).
 - `curl -s http://localhost:8080/stats` (counters, route types).
 - `curl -s http://localhost:8080/health` (HTTP and MQTT listener health).
 - `curl -s http://localhost:8080/debug/last` (recent MQTT decode/debug entries).
-- `curl -s http://localhost:8080/peers/<device_id>` (peer counts/distances for a node; uses route history).
+- `curl -s http://localhost:8080/peers/<device_id>` (peer counts/distances from independent rolling peer-history buckets; add production authentication when enabled).
 
 ## Env Notes (Recent Additions)
 - `CUSTOM_LINK_URL` adds a HUD link button; blank hides it.
@@ -198,6 +212,7 @@ cache-first/offline-capable after the new worker takes control.
 - Ambiguous 1-byte prefixes are now handled conservatively: if multiple nodes share the same first byte, the map skips broad closest/time-based guesses and only keeps the hop when there is stronger evidence such as a unique match or neighbor/manual adjacency.
 
 ## Frontend UI
+- A hidden Pacman route visualization mode is available for live route direction.
 - Header includes a GitHub link icon and HUD summary (stats, feed note).
 - Base map toggle: Light/Dark/Topo; persisted to localStorage.
 - Dark map also darkens node popups for readability.
@@ -317,7 +332,7 @@ If routes aren’t visible:
 - Devices, trails, names, and roles are saved to `data/state.json`.
 - On restart, devices should stay visible if `state.json` exists.
 - Route history is persisted separately to `data/route_history.jsonl` (rolling window).
-- If stale/mis-labeled roles appear, delete `data/state.json` or remove role entries.
+- If roles appear wrong, inspect their source and configured role overrides first. Back up state before any explicitly scoped correction; deleting `state.json` also discards unrelated saved state.
 - State load now removes any `0,0` coordinates from devices/trails (including string values).
 - When `TRAIL_LEN=0`, stored trails are cleared on load and no new trails are written.
 
@@ -336,7 +351,7 @@ If routes aren’t visible:
 - Added route drawing for traces/paths/messages with TTL cleanup.
 - UI: route legend, role legend, and improved marker styles.
 - Roles now apply to advertised pubkey, not receiver.
-- Docker restarts are required after file changes (always run `docker compose up -d --build`).
+- Source changes require rebuilding the image and recreating the service. Env-file changes require recreation, not a plain restart.
 - LOS elevations are proxied via `/los/elevations` and LOS/relay computations run client-side (with `/los` fallback).
 - MQTT online presence now separates connected state (`/status` + `/internal`) from feed activity (`/packets`) with dedicated TTL envs.
 - Filters out `0,0` GPS points from devices, trails, and routes (including string values).
@@ -364,3 +379,233 @@ If routes aren’t visible:
 - Propagation range math now uses a user-set TX antenna gain field; Rx AGL default lowered to 1m (credit: C2D).
 - Device staleness now supports a dual TTL model using both `DEVICE_TTL_HOURS` and `PATH_TTL_SECONDS` together.
 - Multibyte repeater-prefix support (1/2/3-byte) is in place and expected to work, but is not fully field-tested yet.
+
+## Configuration reference
+
+Debugging:
+- `DEBUG_PAYLOAD` (verbose decode logs)
+- `DEBUG_PAYLOAD_MAX` / `PAYLOAD_PREVIEW_MAX` (log truncation limits)
+- `DEBUG_LAST_MAX` / `DEBUG_STATUS_MAX` (debug endpoint entry caps)
+
+Storage + server:
+- `STATE_DIR` (persisted state path)
+- `BACKUP_ENABLED` (enable automatic `.tar.gz` backups)
+- `BACKUP_INTERVAL_SECONDS` (seconds between backups; default `43200` / 12 hours)
+- `BACKUP_DIR` (backup archive directory; default `/backup`)
+- `BACKUP_RETENTION_DAYS` (delete backup archives older than N days; `0` disables pruning)
+- `STATE_FILE` (full state file path override)
+- `DEVICE_ROLES_FILE` (optional role override JSON file)
+- `DEVICE_COORDS_FILE` (optional coordinate override JSON file; default `/data/device_coords.json`)
+- `NEIGHBOR_OVERRIDES_FILE` (optional JSON mapping for neighbor overrides)
+- `CHANNEL_SECRETS_FILE` (optional JSON file of MeshCore channel secrets for decrypting sender names from group text packets)
+- `STATE_SAVE_INTERVAL` (seconds between state saves)
+- `WEBSOCKET_SEND_TIMEOUT_SECONDS` (per-client WebSocket send timeout; default `10`, allowing time for JWT authentication swaps)
+- `WEB_PORT` (host port for the web UI)
+- `PROD_MODE` (true to require a token for API + WS)
+- `PROD_TOKEN` (required token; send via `?token=` or `Authorization: Bearer`)
+
+Backups:
+- when enabled, the server writes timestamped `meshmap-backup-YYYY-MM-DDTHH-MM-SS.tar.gz` archives to `BACKUP_DIR`
+- backup archives are separate from `/data` by default; the compose file mounts `./backup:/backup`
+- backup size depends on retained state and traffic; monitor disk use rather than assuming a fixed storage budget
+
+Turnstile protection (prod-only):
+- `TURNSTILE_ENABLED` (requires `PROD_MODE=true`)
+- `TURNSTILE_SITE_KEY`
+- `TURNSTILE_SECRET_KEY`
+- `TURNSTILE_API_URL`
+- `TURNSTILE_TOKEN_TTL_SECONDS`
+- `TURNSTILE_BOT_BYPASS` (allowlist embed bots like Discord)
+- `TURNSTILE_BOT_ALLOWLIST` (comma-separated user-agent tokens; default: `discordbot,twitterbot,slackbot,facebookexternalhit,linkedinbot,telegrambot,whatsapp,skypeuripreview,redditbot`)
+
+Site metadata (page title + embeds):
+- `SITE_TITLE`
+- `SITE_DESCRIPTION`
+- `SITE_OG_IMAGE` (optional; leave blank to omit embed image)
+- `SITE_URL` (public URL)
+- `APP_BASE_PATH` (optional public subpath such as `/livemap`; leave blank for normal root hosting)
+- `SITE_ICON`
+- `SITE_FEED_NOTE`
+- `CUSTOM_LINK_URL` (optional extra HUD link; hidden when blank)
+- `PACKET_ANALYZER_URL` (optional legacy analyzer base URL for Route Details hashes; leave blank when using `CORESCOPE_URL`)
+- `CORESCOPE_URL` (optional CoreScope base URL; e.g. `https://analyzer.newenglandme.sh`; Route Details hashes link to `#/packets/<hash>` when `PACKET_ANALYZER_URL` is blank, and hop names link to `#/nodes/<pubkey>`)
+- `QR_CODE_BUTTON_ENABLED` (show a `Generate QR Code` button in node popups that opens a theme-aware MeshCore-compatible contact QR modal; default `false`)
+- `PEERS_DEFAULT_LIMIT` (optional default number of incoming/outgoing peers returned by `/peers/{device_id}`; default `8`)
+- `PEERS_DEFAULT_OPEN` (optional `true`/`false`; opens the Peers tool active on page load when `true`; default `false`)
+- `MAP_BOUNDARY_MODE` (`radius` or `polygon`; default `radius`)
+- `MAP_BOUNDARY_FILE` (JSON file used when `MAP_BOUNDARY_MODE=polygon`; default `/data/map_boundary.json`)
+- `MAP_BOUNDARY_SHOW` (draw the active radius/polygon boundary overlay on the map)
+- `DISTANCE_UNITS` (`km` or `mi`, default display units)
+- `HEAT_DEFAULT_ON` (`true` or `false`, default first-load heat visibility before browser overrides)
+- `NODE_MARKER_RADIUS` (default node marker size in pixels)
+
+MQTT:
+- `MQTT_HOST`
+- `MQTT_PORT`
+- `MQTT_USERNAME` (for `meshcore-mqtt-broker`, usually a broker-side `SUBSCRIBER_N` username, not `v1_<PUBLIC_KEY>`)
+- `MQTT_PASSWORD` (matching subscriber password from the broker config)
+- `MQTT_TRANSPORT` (`tcp` or `websockets`)
+- `MQTT_WS_PATH` (usually `/` or `/mqtt`)
+- `MQTT_TLS` (`true`)
+- `MQTT_TLS_INSECURE` (default `false`; when `true`, disables certificate and hostname verification, allowing expired or self-signed certificates; ignores `MQTT_CA_CERT`. TLS remains encrypted, but the broker's identity is not authenticated. Prefer renewing the certificate or configuring a trusted CA.)
+- `MQTT_CA_CERT` (custom CA bundle path)
+- `MQTT_CLIENT_ID` (optional client id override)
+- `MQTT_TOPIC` (e.g. `meshcore/#` or `meshcore/#,other/topic/+` for multiple topics)
+
+Coverage layer:
+- `COVERAGE_API_URL` (legacy coverage-map base URL, or `https://meshmapper.net`; button hidden when blank)
+- `COVERAGE_API_KEY` (MeshMapper only; optional single key for `https://meshmapper.net/coverage.php`; not used by legacy coverage maps)
+- `COVERAGE_API_KEYS` (MeshMapper only; optional comma-separated replacement for `COVERAGE_API_KEY`. Each key is fetched independently, then coverage squares are merged and duplicate squares are removed. Set `COVERAGE_API_URL=https://meshmapper.net` rather than embedding a key in the URL.)
+- `COVERAGE_MAX_AGE_DAYS` (MeshMapper only; default `30`; only coverage from the last N days is sent to the map, while MeshMapper can still cache the full upstream dataset locally; not used by legacy coverage maps)
+- `COVERAGE_RATE_LIMIT_COOLDOWN_SECONDS` (MeshMapper only; fallback cooldown after HTTP 429 if the API does not report `resets_in_hours`)
+- `COVERAGE_CACHE_FILE` (MeshMapper only; local JSON file served to users after server-side sync)
+- `COVERAGE_SYNC_INTERVAL_SECONDS` (MeshMapper only; how often the server refreshes the local coverage cache file, default hourly)
+
+Routing accuracy:
+- Ambiguous 1-byte hop prefixes are now handled conservatively on large meshes.
+- If multiple nodes share the same first byte, the map no longer guesses from broad closest/time-based fallbacks.
+- Colliding 1-byte hops only resolve when there is stronger evidence such as a unique candidate or known neighbor/manual adjacency.
+- `ROUTE_ALLOW_AMBIGUOUS_ONE_BYTE_FALLBACK=true` restores the pre-`v1.7.0` fallback behavior for networks that need the older route rendering.
+
+Weather overlay:
+- `WEATHER_RADAR_ENABLED`:
+  master switch for radar support. If both `WEATHER_RADAR_ENABLED=false` and `WEATHER_WIND_ENABLED=false`, the Weather button is hidden.
+- `WEATHER_RADAR_COUNTRY_BOUNDS_ENABLED`:
+  set `true` to keep radar inside the country around the map center; set `false` for unrestricted radar tiles.
+- `WEATHER_RADAR_COUNTRY_LOOKUP_URL`:
+  keep default (`/weather/radar/country-bounds`) unless you run your own country-bounds endpoint.
+- `WEATHER_WIND_ENABLED`:
+  set `true` to show Wind in the Weather panel, or `false` to disable wind entirely.
+- `WEATHER_WIND_API_URL`:
+  endpoint for wind data (default is Open-Meteo; custom APIs must provide current wind speed/direction).
+- `WEATHER_WIND_GRID_SIZE`:
+  number of wind samples per side (`1`-`5`); larger grid gives more arrows but increases API load.
+- `WEATHER_WIND_REFRESH_SECONDS`:
+  wind refresh interval (seconds, minimum `30`); increase this to reduce API calls.
+
+Device + route tuning:
+- `DEVICE_TTL_HOURS` (advert/device stale window; default `96`)
+- `PATH_TTL_SECONDS` (path stale window; default `172800`)
+- `TRAIL_LEN` (points per device trail; `0` disables trails)
+- `TRAIL_MAX_SEGMENT_KM` (max drawn distance between consecutive trail points; default `10`, `0` disables splitting)
+- `ROUTE_TTL_SECONDS`
+- `ROUTE_PATH_MAX_LEN` (skip oversized path-hash lists)
+- `ROUTE_PAYLOAD_TYPES` (packet types used for live routes)
+- `ROUTE_MAX_HOP_DISTANCE` (km; prunes unrealistic hops)
+- `ROUTE_INFRA_ONLY` (true = only repeaters/rooms in route lines)
+- `ROUTE_NEIGHBOR_DEBUG` (logs collided-neighbor route selections; default `false` to avoid high-volume log noise)
+- `ROUTE_BYTE_FILTER_DEFAULT` (default live Path bytes checkbox state; `all`, `1b`, `2b`, `3b`, or comma combos)
+- `SHOW_REPEATERS_DEFAULT`, `SHOW_COMPANIONS_DEFAULT`, `SHOW_ROOM_SERVERS_DEFAULT`, and `SHOW_UNKNOWN_DEFAULT` (initial role visibility before browser/share overrides)
+- `MESSAGE_ORIGIN_TTL_SECONDS`
+
+History overlay:
+- `ROUTE_HISTORY_ENABLED`
+  - Set `false` to disable Route History entirely, including the History button/panel and history payloads.
+  - Peer counts still continue working when this is `false`; the Peers tool uses separate rolling peer-history buckets.
+- `ROUTE_HISTORY_HOURS`
+- `ROUTE_HISTORY_MAX_SEGMENTS`
+- `ROUTE_HISTORY_COMPACT_INTERVAL`
+- `ROUTE_HISTORY_FILE`
+- `ROUTE_HISTORY_PAYLOAD_TYPES`
+- `ROUTE_HISTORY_ALLOWED_MODES` (comma-separated route modes; default `path`)
+- `HISTORY_BYTE_FILTER_DEFAULT` (default History Path bytes checkbox state; `all`, `1b`, `2b`, `3b`, or comma combos)
+- `HISTORY_LINK_SCALE` (default history line weight multiplier)
+
+Heat + online status:
+- `HEAT_DEFAULT_ON` (default Heat toggle state for first load; local browser preference or `?heat=` can still override it)
+- `HEAT_TTL_SECONDS`
+- `MQTT_ONLINE_SECONDS` (legacy/global fallback TTL for MQTT presence)
+- `MQTT_ONLINE_STATUS_TTL_SECONDS` (how long `/status` keeps a node connected)
+- `MQTT_ONLINE_INTERNAL_TTL_SECONDS` (how long `/internal` keeps a node connected)
+- `MQTT_ACTIVITY_PACKETS_TTL_SECONDS` (how long `/packets` counts as feeding activity)
+- `MQTT_STATUS_OFFLINE_VALUES` (comma-separated status values that force offline, even inside TTL)
+- `MQTT_ONLINE_TOPIC_SUFFIXES` (legacy compatibility setting; primary online source is status/internal TTLs)
+- `MQTT_SEEN_BROADCAST_MIN_SECONDS`
+- `MQTT_ONLINE_FORCE_NAMES` (comma-separated names to force as MQTT online; also excluded from peers)
+
+Update checks:
+- `GIT_CHECK_ENABLED` (show update banner if repo is behind)
+- `GIT_CHECK_FETCH` (fetch before comparing)
+- `GIT_CHECK_PATH` (path to git repo in the container)
+- `GIT_CHECK_INTERVAL_SECONDS` (defaults to 43200 = 12h)
+
+Map + LOS:
+- `MAP_START_LAT` / `MAP_START_LON` / `MAP_START_ZOOM` (default map view)
+- `MAP_DEFAULT_LAYER` (`light`, `dark`, `topo`, or `satellite`; localStorage overrides)
+  - `satellite` uses open Sentinel-2 cloudless imagery from EOX with OpenStreetMap/CARTO labels and borders overlaid.
+- The `dark` layer uses the keyless OpenFreeMap Dark vector style through MapLibre GL Leaflet, with OpenFreeMap, OpenMapTiles, and OpenStreetMap attribution. No API key is required.
+- `CARTO_BASEMAP_KEY` is optional and is used only for CARTO satellite labels and server-generated dark social preview tiles. Keep it per-project and out of Git. Without a key, satellite imagery remains available without the CARTO label overlay and dark previews fall back to OpenStreetMap. See [Configure an optional CARTO key](howto.md#optional-carto-key-for-satellite-labels-and-dark-previews).
+- `MAP_RADIUS_KM` (`0` disables radius filtering; `.env.example` uses `241.4` km ≈ 150mi)
+- `MAP_RADIUS_SHOW` (`true` draws the radius debug circle)
+- `LOS_ELEVATION_URL` (elevation API for LOS tool)
+- `LOS_ELEVATION_PROXY_URL` (server proxy for client-side LOS elevation fetches)
+- `LOS_SAMPLE_MIN` / `LOS_SAMPLE_MAX` / `LOS_SAMPLE_STEP_METERS`
+- `ELEVATION_CACHE_TTL` (seconds)
+- `LOS_CURVATURE_ENABLED` (default `true`; include Earth curvature in LOS calculations)
+- `LOS_CURVATURE_FACTOR` (default `1.333333`; effective Earth radius multiplier used by the LOS tool)
+- `LOS_PEAKS_MAX` (max peaks shown on LOS profile)
+
+Decoder helpers:
+- `DECODE_WITH_NODE` (toggle Node-based MeshCore decoder usage)
+- `NODE_DECODE_TIMEOUT_SECONDS`
+- `DIRECT_COORDS_MODE` (`topic` or `payload`)
+- `DIRECT_COORDS_TOPIC_REGEX` (topic matcher for direct coords)
+- `DIRECT_COORDS_ALLOW_ZERO` (allow `0,0` coords if `true`)
+
+
+## Production Token
+Enable protection by setting:
+```
+PROD_MODE=true
+PROD_TOKEN=<random-string>
+```
+
+Turnstile protection is also gated by `PROD_MODE=true`. If `PROD_MODE=false`,
+Turnstile stays off even when `TURNSTILE_ENABLED=true`.
+When Turnstile is enabled, browser sessions can authenticate the map + WebSocket
+with a Turnstile auth token (`meshmap_auth` cookie or `?auth=` on `/ws`), but
+protected API routes (`/snapshot`, `/api/nodes`, `/peers/{id}`) still require
+`PROD_TOKEN`.
+Ensure `PROD_MODE`/`PROD_TOKEN` are set in `.env` (docker-compose passes them through).
+
+Generate a token:
+```
+openssl rand -hex 32
+```
+
+Use it:
+- HTTP: `http://host:8080/snapshot?token=YOUR_TOKEN`
+- WS: `ws://host:8080/ws?token=YOUR_TOKEN`
+- Or send `Authorization: Bearer YOUR_TOKEN`
+
+
+## API
+The backend exposes a nodes API for external tools (e.g. MeshBuddy):
+
+- `GET /api/nodes?token=YOUR_TOKEN`
+  - Default response: `{"data":[...], "nodes":[...]}`
+  - Optional: `format=nested` returns `{"data":{"nodes":[...]}}`
+  - `updated_since` applies delta filtering automatically
+  - Optional: `mode=full` (or `all`/`snapshot`) forces full-list response
+
+Example:
+```
+https://your-host/api/nodes?token=YOUR_TOKEN
+https://your-host/api/nodes?token=YOUR_TOKEN&updated_since=2025-01-01T12:00:00Z
+https://your-host/api/nodes?token=YOUR_TOKEN&format=nested
+https://your-host/api/nodes?token=YOUR_TOKEN&mode=full
+```
+
+Each node includes:
+`public_key`, `name`, `device_role` (1/2/3), `last_seen` (ISO), `timestamp` (epoch), and `location` with `latitude`/`longitude`.
+
+Peer summary:
+- `GET /peers/{device_id}?token=YOUR_TOKEN`
+  - Returns incoming/outgoing neighbors with counts/percentages from route history and `distance_m` when both endpoints have coordinates.
+
+Boundary mode:
+- Default behavior remains radius-based filtering.
+- Set `MAP_BOUNDARY_MODE=polygon` to filter nodes, routes, and history against a polygon from `MAP_BOUNDARY_FILE`.
+- Use `map_boundary.example.json` as the file format reference.
+- The repo includes a standalone builder at `tools/map-boundary-builder.html`; a hosted copy is available at [https://yellowcooln.com/map-boundary-builder/](https://yellowcooln.com/map-boundary-builder/).
+- Use either copy to click points on the map and export `map_boundary.json`.
