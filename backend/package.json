@@ -9,6 +9,6 @@
   "dependencies": {
     "@michaelhart/meshcore-decoder": "0.3.0",
     "@maplibre/maplibre-gl-leaflet": "0.1.4",
-    "maplibre-gl": "6.16.0"
+    "maplibre-gl": "6.17.0"
   }
 }
