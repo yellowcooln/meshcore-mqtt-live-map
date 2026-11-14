@@ -1,4 +1,4 @@
-FROM node:24.22.1-trixie-slim AS node-assets
+FROM node:24.22.2-trixie-slim AS node-assets
 WORKDIR /assets
 COPY package.json package-lock.json ./
 COPY scripts ./scripts
