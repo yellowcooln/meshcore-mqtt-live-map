@@ -1,5 +1,10 @@
 # Versions
 
+## v1.10.0 (11-16-2026)
+- Fixed MQTT observers incorrectly switching between repeater, room server, and companion roles after receiving adverts from nodes outside the map boundary or with zero coordinates.
+- Decoded role updates now target the sender rather than the observer, including when coordinate overrides are used. Normal observer status role updates remain unchanged.
+- Thanks to [@tmcgee](https://github.com/tmcgee) for investigating and fixing this in [PR #130](https://github.com/yellowcooln/meshcore-mqtt-live-map/pull/130).
+
 ## v1.9.9 (11-04-2026)
 - Fix Propagation renders stuck at 0% by loading a same-origin static worker without relaxing the worker CSP. Recover from worker startup, messaging and render failures with an explicit retry, ignore stale/cancelled work, and refresh the PWA asset cache (including subpath worker caching) without caching failed asset responses.
 - Updated Paho MQTT from `2.1.0` to `2.2.0` and MapLibre GL from `6.15.0` to `6.16.0` through PRs #120 and #121.
