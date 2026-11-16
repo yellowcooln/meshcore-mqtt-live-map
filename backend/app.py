@@ -1756,6 +1756,39 @@ def _evict_device(device_id: str) -> bool:
   return removed
 
 
+_ROLE_DROP_RESULTS = ("filtered_radius", "filtered_zero_coords")
+
+
+def _role_target_id(
+  debug: Dict[str, Any], decoder_meta: Any, result: str,
+  origin_id: Optional[str]
+) -> Optional[str]:
+  """Return the device a role hint describes, or None to drop the hint.
+
+  A role decoded from an RF packet belongs to the packet's sender. The
+  boundary and zero-coordinate filters rewrite `result`, so they must not
+  send the role back to the topic origin: that is the observer that heard
+  the packet, which would take on the sender's role. Envelopes without a
+  decoded packet (status, direct JSON) still describe the topic origin.
+  """
+  if not debug.get("device_role"):
+    return origin_id
+  decoded = isinstance(decoder_meta, dict) and decoder_meta.get("ok") is True
+  if not decoded and not result.startswith("decoded"):
+    return origin_id
+  if result in _ROLE_DROP_RESULTS:
+    # The sender was filtered out of the map; keep no role for it.
+    return None
+  loc_meta = decoder_meta.get("location") if decoded else None
+  for value in (
+    loc_meta.get("pubkey") if isinstance(loc_meta, dict) else None,
+    debug.get("decoded_pubkey"),
+  ):
+    if isinstance(value, str) and value.strip():
+      return value
+  return None
+
+
 def _device_role_code(value: Any) -> int:
   if isinstance(value, int):
     if value in (1, 2, 3):
@@ -2342,19 +2375,7 @@ def _handle_mqtt_message(client, userdata, msg: mqtt.MQTTMessage):
   decoder_meta = debug.get("decoder_meta") or {}
   result = debug.get("result") or "unknown"
   device_role = debug.get("device_role")
-  role_target_id = origin_id
-  if device_role and result.startswith("decoded"):
-    role_target_id = None
-    loc_meta = (
-      decoder_meta.get("location") if isinstance(decoder_meta, dict) else None
-    )
-    loc_pubkey = loc_meta.get("pubkey") if isinstance(loc_meta, dict) else None
-    if isinstance(loc_pubkey, str) and loc_pubkey.strip():
-      role_target_id = loc_pubkey
-    else:
-      decoded_pubkey = debug.get("decoded_pubkey")
-      if isinstance(decoded_pubkey, str) and decoded_pubkey.strip():
-        role_target_id = decoded_pubkey
+  role_target_id = _role_target_id(debug, decoder_meta, result, origin_id)
   debug_entry = {
     "ts": time.time(),
     "topic": msg.topic,
