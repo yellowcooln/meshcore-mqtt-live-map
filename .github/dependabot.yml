@@ -24,6 +24,11 @@ updates:
       # Review future Node LTS-major migrations explicitly; keep patches/minors.
       - dependency-name: "node"
         update-types: ["version-update:semver-major"]
+      # Stay on the current stable Python minor; keep patch updates enabled.
+      - dependency-name: "python"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
 
   - package-ecosystem: "github-actions"
     directory: "/"
