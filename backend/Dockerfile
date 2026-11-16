@@ -5,7 +5,7 @@ COPY scripts ./scripts
 RUN npm ci --omit=dev --no-audit --fund=false \
   && npm run build:assets
 
-FROM python:3.15.1-slim
+FROM python:3.15.2-slim
 
 ARG APP_VERSION=1.10.0
 ENV APP_VERSION=${APP_VERSION}
