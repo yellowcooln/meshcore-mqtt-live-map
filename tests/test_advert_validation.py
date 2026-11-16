@@ -287,3 +287,76 @@ def test_nonadvert_multibyte_routing_and_channel_secret_preserved(ingest, monkey
   undeciphered = decoder._decode_meshcore_hex(hex_value)[4]
   assert undeciphered["ok"] is True
   assert undeciphered["senderName"] is None
+
+
+def _boundary(monkeypatch, lat, lon, radius_km=50):
+  import boundary
+  monkeypatch.setattr(boundary, "MAP_BOUNDARY_MODE", "radius")
+  monkeypatch.setattr(boundary, "MAP_RADIUS_KM", radius_km)
+  monkeypatch.setattr(boundary, "MAP_START_LAT", lat)
+  monkeypatch.setattr(boundary, "MAP_START_LON", lon)
+
+
+def _role_events(app):
+  events = []
+  while not app.update_queue.empty():
+    events.append(app.update_queue.get_nowait())
+  return [e for e in events if e.get("type") == "device_role"]
+
+
+def test_filtered_advert_role_never_lands_on_observer(ingest, monkeypatch):
+  app = ingest
+  # Map centered far from the advert (34.44523, -118.38101), so the
+  # observer hears a sender outside the boundary.
+  _boundary(monkeypatch, 38.2919, -122.4580)
+  app.devices[RECEIVER] = app.state.DeviceState(
+      RECEIVER, 38.32, -122.48, 123, name="observer", role="repeater")
+  app.device_roles[RECEIVER] = "repeater"
+  deliver(app, json.dumps({"raw": VALID, "origin_id": RECEIVER,
+                          "direction": "rx"}).encode())
+  assert app.debug_last[-1]["result"] == "filtered_radius"
+  assert app.debug_last[-1]["role_target_id"] is None
+  assert app.device_roles == {RECEIVER: "repeater"}
+  assert app.devices[RECEIVER].role == "repeater"
+  assert PUBKEY not in app.devices
+  assert not _role_events(app)
+
+
+def test_filtered_advert_does_not_set_role_on_unknown_observer(ingest,
+                                                               monkeypatch):
+  app = ingest
+  _boundary(monkeypatch, 38.2919, -122.4580)
+  deliver(app, json.dumps({"raw": VALID, "direction": "rx"}).encode())
+  assert app.debug_last[-1]["result"] == "filtered_radius"
+  assert RECEIVER not in app.device_roles
+  assert PUBKEY not in app.device_roles
+
+
+def test_in_boundary_advert_role_still_goes_to_sender(ingest, monkeypatch):
+  app = ingest
+  _boundary(monkeypatch, 34.44, -118.38)
+  app.device_roles[RECEIVER] = "repeater"
+  deliver(app, json.dumps({"raw": VALID, "origin_id": RECEIVER,
+                          "direction": "rx"}).encode())
+  assert app.debug_last[-1]["result"] == "decoded"
+  assert app.debug_last[-1]["role_target_id"] == PUBKEY
+  assert app.device_roles == {RECEIVER: "repeater", PUBKEY: "repeater"}
+
+
+def test_role_target_helper_keeps_envelope_fallback():
+  import app
+  envelope = {"device_role": "room"}
+  # No decoded packet: the hint describes the topic origin.
+  assert app._role_target_id(envelope, {}, "json_no_packet_blob",
+                             RECEIVER) == RECEIVER
+  assert app._role_target_id(envelope, {"ok": False}, "decode_failed",
+                             RECEIVER) == RECEIVER
+  decoded = {"ok": True, "location": {"pubkey": PUBKEY}}
+  for result in ("filtered_radius", "filtered_zero_coords"):
+    assert app._role_target_id(envelope, decoded, result, RECEIVER) is None
+  # A decoded packet always points at its sender, never the observer.
+  assert app._role_target_id(envelope, decoded, "coord_override_created",
+                             RECEIVER) == PUBKEY
+  assert app._role_target_id(
+      {"device_role": "companion", "decoded_pubkey": PUBKEY},
+      {"ok": True}, "decoded_no_location", RECEIVER) == PUBKEY
