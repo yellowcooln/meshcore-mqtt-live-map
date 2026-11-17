@@ -35,6 +35,23 @@
 
 Routes come from decoded packet paths, not a survey of every possible RF link. Missing coordinates, missing hops, and ambiguous short prefixes can prevent lines from being drawn. Planning tools provide estimates, not guaranteed radio coverage.
 
+## Community maps
+
+- [Greater Boston](https://live.bostonme.sh/)
+- [New England](https://map.newenglandme.sh/)
+- [CTMesh](https://meshcore-map.ctmesh.org/)
+- [Upstate New York's Capital District](https://map.upst8me.sh/)
+- [West Coast Mesh](https://livemap.wcmesh.com/)
+- [Utah Mesh](https://map.mwmesh.com/)
+- [Aus Eastern Mesh](https://map.eastmesh.au/)
+- [Czech Republic](https://mapa.meshcore.cz/)
+- [Bayreuth](https://map.meshcorebayreuth.de/)
+- [Southern Poland](https://mcmap.cheaterenator.trade/)
+
+Community deployments may run different versions and configurations.
+
+Running a map for your mesh? If you'd like it listed here, [open an issue](https://github.com/yellowcooln/meshcore-mqtt-live-map/issues/new) with your mesh name and map URL.
+
 ## Quick start
 
 ### Run the prebuilt Docker image
@@ -172,23 +189,6 @@ pip install -r requirements-dev.txt
 npm ci --prefix backend
 pytest -q
 ```
-
-## Community maps
-
-- [Greater Boston](https://live.bostonme.sh/)
-- [New England](https://map.newenglandme.sh/)
-- [CTMesh](https://meshcore-map.ctmesh.org/)
-- [Upstate New York's Capital District](https://map.upst8me.sh/)
-- [West Coast Mesh](https://livemap.wcmesh.com/)
-- [Utah Mesh](https://map.mwmesh.com/)
-- [Aus Eastern Mesh](https://map.eastmesh.au/)
-- [Czech Republic](https://mapa.meshcore.cz/)
-- [Bayreuth](https://map.meshcorebayreuth.de/)
-- [Southern Poland](https://mcmap.cheaterenator.trade/)
-
-Community deployments may run different versions and configurations.
-
-Running a map for your mesh? If you'd like it listed here, [open an issue](https://github.com/yellowcooln/meshcore-mqtt-live-map/issues/new) with your mesh name and map URL.
 
 ## About these projects
 

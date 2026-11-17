@@ -58,6 +58,8 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: yellowcooln/meshcore-mqtt-live-map
+          labels: |
+            org.opencontainers.image.licenses=MIT
           tags: |
             type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
             type=ref,event=branch
