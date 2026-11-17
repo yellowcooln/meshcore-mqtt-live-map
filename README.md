@@ -178,6 +178,7 @@ pytest -q
 - [Greater Boston](https://live.bostonme.sh/)
 - [New England](https://map.newenglandme.sh/)
 - [CTMesh](https://meshcore-map.ctmesh.org/)
+- [Upstate New York's Capital District](https://map.upst8me.sh/)
 - [West Coast Mesh](https://livemap.wcmesh.com/)
 - [Utah Mesh](https://map.mwmesh.com/)
 - [Aus Eastern Mesh](https://map.eastmesh.au/)
