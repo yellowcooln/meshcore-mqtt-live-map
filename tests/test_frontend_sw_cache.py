@@ -12,14 +12,20 @@ SW_JS = Path(__file__).resolve().parents[1] / "backend/static/sw.js"
 @pytest.mark.parametrize("base_path", ["", "/socal"])
 @pytest.mark.parametrize("legacy_cache", [
   "meshmap-pwa-v7-maplibre6", "meshmap-pwa-v8-live-updates",
-  "meshmap-pwa-v9-snapshot-startup"
+  "meshmap-pwa-v9-snapshot-startup", "meshmap-pwa-v10-propagation-worker"
 ])
-@pytest.mark.parametrize("asset", ["app.js?v=1.9.9", "propagation-worker.js"])
+@pytest.mark.parametrize("asset", [
+  "app.js?v=1.9.9", "propagation-worker.js",
+  "vendor/maplibre/maplibre-gl.mjs",
+  "vendor/maplibre/maplibre-gl-shared.mjs",
+  "vendor/maplibre/maplibre-gl-worker.mjs",
+  "vendor/maplibre/maplibre-gl.css"
+])
 @pytest.mark.parametrize("late_old_write", [False, True])
 def test_service_worker_activation_retires_legacy_frontend_cache(
   base_path, legacy_cache, late_old_write, asset
 ):
-  # Retire pre-fix generations used during v1.9.8/v1.9.9 development.
+  # Retire older generations, including the previous MapLibre asset graph.
   script = r"""
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
