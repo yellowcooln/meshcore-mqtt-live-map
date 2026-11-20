@@ -48,6 +48,7 @@ Routes come from decoded packet paths, not a survey of every possible RF link. M
 - [Bayreuth](https://map.meshcorebayreuth.de/)
 - [Southern Poland](https://mcmap.cheaterenator.trade/)
 - [Long Island Mesh](https://map.limesh.org/)
+- [Texas Mesh](https://livemap.meshtexas.org/)
 
 Community deployments may run different versions and configurations.
 
