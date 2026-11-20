@@ -37,18 +37,22 @@ Routes come from decoded packet paths, not a survey of every possible RF link. M
 
 ## Community maps
 
-- [Greater Boston](https://live.bostonme.sh/)
+### United States
+
 - [New England](https://map.newenglandme.sh/)
+- [Greater Boston](https://live.bostonme.sh/)
 - [CTMesh](https://meshcore-map.ctmesh.org/)
+- [Long Island Mesh](https://map.limesh.org/)
 - [Upstate New York's Capital District](https://map.upst8me.sh/)
-- [West Coast Mesh](https://livemap.wcmesh.com/)
+- [Texas Mesh](https://livemap.meshtexas.org/)
 - [Utah Mesh](https://map.mwmesh.com/)
+- [West Coast Mesh](https://livemap.wcmesh.com/)
+
+### Other countries
+
 - [Aus Eastern Mesh](https://map.eastmesh.au/)
-- [Czech Republic](https://mapa.meshcore.cz/)
 - [Bayreuth](https://map.meshcorebayreuth.de/)
 - [Southern Poland](https://mcmap.cheaterenator.trade/)
-- [Long Island Mesh](https://map.limesh.org/)
-- [Texas Mesh](https://livemap.meshtexas.org/)
 
 Community deployments may run different versions and configurations.
 
