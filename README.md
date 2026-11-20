@@ -184,6 +184,7 @@ pytest -q
 - [Czech Republic](https://mapa.meshcore.cz/)
 - [Bayreuth](https://map.meshcorebayreuth.de/)
 - [Southern Poland](https://mcmap.cheaterenator.trade/)
+- [Long Island Mesh](https://map.limesh.org/)
 
 Community deployments may run different versions and configurations.
 
