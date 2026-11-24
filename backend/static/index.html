@@ -78,6 +78,14 @@
 
     // Check Turnstile authentication
     (function () {
+      // Retire unused copies without changing cookies or saved preferences.
+      for (const storageName of ['sessionStorage', 'localStorage']) {
+        try {
+          window[storageName].removeItem('meshmap_auth_token');
+        } catch (_error) {
+          // Storage may be blocked; still attempt cleanup of the other store.
+        }
+      }
       const turnstileEnabled = document.body.getAttribute('data-turnstile-enabled') === 'true';
       if (!turnstileEnabled) {
         console.log('[auth] Turnstile disabled, loading map');

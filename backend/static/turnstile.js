@@ -210,10 +210,6 @@ const TurnstileAuth = {
         
         this.log(4, `Cookie set: meshmap_auth`);
         
-        // Also store in sessionStorage/localStorage for client-side checks
-        sessionStorage.setItem('meshmap_auth_token', data.auth_token);
-        localStorage.setItem('meshmap_auth_token', data.auth_token);
-
         // Redirect to map after a short delay
         setTimeout(() => {
           window.location.href = meshmapApiPath('/map');
@@ -243,6 +239,14 @@ const TurnstileAuth = {
   },
 
   async init() {
+    // Retire unused copies; cookie authentication does not require Web Storage.
+    for (const storageName of ['sessionStorage', 'localStorage']) {
+      try {
+        window[storageName].removeItem('meshmap_auth_token');
+      } catch (_error) {
+        // Storage may be blocked; still attempt cleanup of the other store.
+      }
+    }
     try {
       this.log(1, 'Initializing Turnstile authentication...');
 

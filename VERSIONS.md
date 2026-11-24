@@ -7,7 +7,8 @@
 - Updated FastAPI from `0.162.0` to `0.165.0` and MapLibre GL from `6.16.0` to `6.19.0` through PRs #128, #129, #133, #135, and #137. FastAPI now requires Python `3.11` or newer for source installations.
 - Updated the development HTTPX2 client from `2.16.0` to `2.16.2` through PR #136.
 - Updated the Docker runtime from Python `3.15.1-slim` to stable `3.15.2-slim` and Node `24.22.1-trixie-slim` to `24.22.3-trixie-slim` through PRs #127, #131, and #132.
-- Refreshed the PWA static-asset cache so existing installations load the updated MapLibre modules, worker, and stylesheet instead of retaining the previous cached renderer.
+- Removed unused Turnstile visitor-token copies from localStorage and sessionStorage. Existing copies are removed on verification and map startup; cleanup tolerates blocked browser storage and leaves cookies and saved map preferences unchanged.
+- Refreshed the PWA static-asset cache so existing installations load the updated MapLibre modules, worker, stylesheet, and authentication cleanup instead of retaining previous cached assets.
 - Kept Python on the stable `3.15` minor and Node on the `24` LTS line. Dependabot keeps Python patch updates enabled while future Python minor/major and Node-major runtime migrations require deliberate review.
 
 ## v1.9.9 (11-04-2026)
