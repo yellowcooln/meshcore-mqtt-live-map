@@ -12,7 +12,8 @@ SW_JS = Path(__file__).resolve().parents[1] / "backend/static/sw.js"
 @pytest.mark.parametrize("base_path", ["", "/socal"])
 @pytest.mark.parametrize("legacy_cache", [
   "meshmap-pwa-v7-maplibre6", "meshmap-pwa-v8-live-updates",
-  "meshmap-pwa-v9-snapshot-startup", "meshmap-pwa-v10-propagation-worker"
+  "meshmap-pwa-v9-snapshot-startup", "meshmap-pwa-v10-propagation-worker",
+  "meshmap-pwa-v11-maplibre618"
 ])
 @pytest.mark.parametrize("asset", [
   "app.js?v=1.9.9", "propagation-worker.js",

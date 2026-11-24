@@ -4,7 +4,8 @@
 - Fixed MQTT observers incorrectly switching between repeater, room server, and companion roles after receiving adverts from nodes outside the map boundary or with zero coordinates.
 - Decoded role updates now target the sender rather than the observer, including when coordinate overrides are used. Normal observer status role updates remain unchanged.
 - Thanks to [@tmcgee](https://github.com/tmcgee) for investigating and fixing this in [PR #130](https://github.com/yellowcooln/meshcore-mqtt-live-map/pull/130).
-- Updated FastAPI from `0.162.0` to `0.162.7` and MapLibre GL from `6.16.0` to `6.18.0` through PRs #128, #129, and #133. FastAPI now requires Python `3.11` or newer for source installations.
+- Updated FastAPI from `0.162.0` to `0.165.0` and MapLibre GL from `6.16.0` to `6.19.0` through PRs #128, #129, #133, #135, and #137. FastAPI now requires Python `3.11` or newer for source installations.
+- Updated the development HTTPX2 client from `2.16.0` to `2.16.2` through PR #136.
 - Updated the Docker runtime from Python `3.15.1-slim` to stable `3.15.2-slim` and Node `24.22.1-trixie-slim` to `24.22.3-trixie-slim` through PRs #127, #131, and #132.
 - Refreshed the PWA static-asset cache so existing installations load the updated MapLibre modules, worker, and stylesheet instead of retaining the previous cached renderer.
 - Kept Python on the stable `3.15` minor and Node on the `24` LTS line. Dependabot keeps Python patch updates enabled while future Python minor/major and Node-major runtime migrations require deliberate review.
