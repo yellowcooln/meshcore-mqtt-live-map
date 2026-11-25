@@ -62,14 +62,18 @@ from decoder import (
   _node_ready_once,
   _node_unavailable_once,
 )
+from persistence import FileWriter
 from history import (
+  _flush_route_history,
   _load_route_history,
   PEER_HISTORY_BUCKET_SECONDS,
   _peer_history_cutoff,
   _prune_peer_history,
+  _prune_peer_history_background,
   _prune_route_history,
   _rebuild_peer_history_from_segments,
   _record_route_history,
+  _record_route_history_async,
   _route_history_saver,
 )
 from backup import _backup_loop
@@ -1103,6 +1107,15 @@ async def _lifespan(_app: FastAPI):
         pass
       mqtt_client = None
 
+    try:
+      await _flush_route_history()
+    except Exception as exc:
+      print(f"[history] failed final compaction: {exc}")
+    try:
+      await _flush_state()
+    except Exception as exc:
+      print(f"[state] failed final save {STATE_FILE}: {exc}")
+
 
 app = FastAPI(lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -1423,6 +1436,18 @@ def _prune_neighbors(now: float) -> None:
 
 def _serialize_state() -> Dict[str, Any]:
   devices_snapshot = _stable_dict_copy(devices)
+  peer_snapshot = {}
+  for key, entry in _stable_dict_copy(peer_history_pairs).items():
+    if not isinstance(entry, dict):
+      peer_snapshot[key] = copy.deepcopy(entry)
+      continue
+    # Bucket keys/counts are scalar strings/integers. Copy their mapping in C
+    # rather than recursively visiting every retained counter on each save.
+    peer_snapshot[key] = {
+      field: value.copy() if field == "buckets" and isinstance(value, dict)
+      else copy.deepcopy(value)
+      for field, value in entry.items()
+    }
   payload = {
     "version": 1,
     "saved_at": time.time(),
@@ -1430,7 +1455,7 @@ def _serialize_state() -> Dict[str, Any]:
       k: asdict(v)
       for k, v in devices_snapshot.items()
     },
-    "trails": _stable_dict_copy(trails),
+    "trails": copy.deepcopy(_stable_dict_copy(trails)),
     "seen_devices": _stable_dict_copy(seen_devices),
     "device_names": _stable_dict_copy(device_names),
     "device_roles": _stable_dict_copy(device_roles),
@@ -1438,9 +1463,9 @@ def _serialize_state() -> Dict[str, Any]:
     "last_seen_in_path": _stable_dict_copy(state.last_seen_in_path),
     "first_seen_devices": _stable_dict_copy(first_seen_devices),
     "last_seen_in_advert": _stable_dict_copy(last_seen_in_advert),
-    "peer_history_pairs": _stable_dict_copy(peer_history_pairs),
+    "peer_history_pairs": peer_snapshot,
   }
-  return copy.deepcopy(payload)
+  return payload
 
 
 def _check_git_updates() -> None:
@@ -1858,6 +1883,7 @@ def _route_payload(route: Dict[str, Any]) -> Dict[str, Any]:
     "route_mode": route.get("route_mode"),
     "ts": route.get("ts"),
     "expires_at": route.get("expires_at"),
+    "generation": route.get("generation"),
     "origin_id": route.get("origin_id"),
     "receiver_id": route.get("receiver_id"),
     "payload_type": route.get("payload_type"),
@@ -2162,18 +2188,37 @@ def _load_state() -> None:
   _rebuild_node_hash_map()
 
 
+_state_file_writer = FileWriter()
+
+
+def _write_state_file(path: str, payload: Dict[str, Any]) -> None:
+  directory = os.path.dirname(path)
+  if directory:
+    os.makedirs(directory, exist_ok=True)
+  tmp_path = f"{path}.tmp"
+  with open(tmp_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+  os.replace(tmp_path, path)
+
+
+async def _flush_state() -> None:
+  if not state.state_dirty:
+    return
+  state.state_dirty = False
+  try:
+    payload = _serialize_state()
+    await _state_file_writer.run(_write_state_file, STATE_FILE, payload)
+  except BaseException:
+    state.state_dirty = True
+    raise
+
+
 async def _state_saver() -> None:
   while True:
-    if state.state_dirty:
-      try:
-        os.makedirs(STATE_DIR, exist_ok=True)
-        tmp_path = f"{STATE_FILE}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as handle:
-          json.dump(_serialize_state(), handle)
-        os.replace(tmp_path, STATE_FILE)
-        state.state_dirty = False
-      except Exception as exc:
-        print(f"[state] failed to save {STATE_FILE}: {exc}")
+    try:
+      await _flush_state()
+    except Exception as exc:
+      print(f"[state] failed to save {STATE_FILE}: {exc}")
     await asyncio.sleep(max(1.0, STATE_SAVE_INTERVAL))
 
 
@@ -2751,19 +2796,24 @@ async def broadcaster():
         "topic": event.get("topic"),
       }
       _append_heat_points(points, route["ts"], event.get("payload_type"))
-      routes[route_id] = route
 
       if point_ids and used_hashes:
         _record_neighbors(evidence_ids, route["ts"])
       _update_path_timestamps(evidence_ids, route["ts"])
 
       # Keep guessed geometry without learning or persisting guessed peer IDs.
-      history_updates, history_removed = _record_route_history(
+      history_updates, history_removed = await _record_route_history_async(
         {**route, "point_ids": evidence_ids}
       )
 
-      payload = {"type": "route", "route": _route_payload(route)}
-      await _broadcast_payloads([payload])
+      # Accepted observations retain their history and source timestamps even
+      # when queue/file work consumed their entire live-display lifetime.
+      if route["expires_at"] > time.time():
+        state.route_generation += 1
+        route["generation"] = state.route_generation
+        routes[route_id] = route
+        payload = {"type": "route", "route": _route_payload(route)}
+        await _broadcast_payloads([payload])
       if history_updates or history_removed:
         history_payload = {}
         if history_updates:
@@ -2871,6 +2921,23 @@ async def broadcaster():
     await _broadcast_payloads([payload])
 
 
+def _remove_route_payload(route_ids: List[str]) -> Dict[str, Any]:
+  """Remove captured routes before awaiting I/O, and identify their versions."""
+  removed = {}
+  for route_id in route_ids:
+    route = routes.pop(route_id, None)
+    if route is not None:
+      removed[route_id] = route
+  return {
+    "type": "route_remove",
+    "route_ids": list(removed),
+    "route_generations": {
+      route_id: route["generation"]
+      for route_id, route in removed.items() if "generation" in route
+    },
+  }
+
+
 async def reaper():
   global mqtt_presence_last_summary
   while True:
@@ -2929,20 +2996,16 @@ async def reaper():
         ):
           bad_routes.append(route_id)
       if bad_routes:
-        payload = {"type": "route_remove", "route_ids": bad_routes}
+        payload = _remove_route_payload(bad_routes)
         await _broadcast_payloads([payload])
-        for route_id in bad_routes:
-          routes.pop(route_id, None)
 
     stale_routes = [
       route_id for route_id, route in _stable_dict_copy(routes).items()
-      if now > route.get("expires_at", 0)
+      if now >= route.get("expires_at", 0)
     ]
     if stale_routes:
-      payload = {"type": "route_remove", "route_ids": stale_routes}
+      payload = _remove_route_payload(stale_routes)
       await _broadcast_payloads([payload])
-      for route_id in stale_routes:
-        routes.pop(route_id, None)
 
     history_updates, history_removed = _prune_route_history()
     if history_updates or history_removed:
@@ -2989,7 +3052,7 @@ async def reaper():
         first_seen_devices.pop(dev_id, None)
         last_seen_in_advert.pop(dev_id, None)
         state.last_seen_in_path.pop(dev_id, None)
-    if _prune_peer_history(now):
+    if await _prune_peer_history_background(now):
       state.state_dirty = True
 
     await asyncio.sleep(5)

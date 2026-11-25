@@ -49,6 +49,49 @@ Thanks for helping improve the MeshCore Live Map. This repo is intentionally lig
 - Coordinate overrides: `DEVICE_COORDS_FILE` (default `/data/device_coords.json`).
 - Neighbor overrides: `NEIGHBOR_OVERRIDES_FILE` can force adjacency pairs for hash collisions.
 
+## Large-map performance regression
+
+Use `tools/benchmark-large-map.py` inside the production Python/Node runtime,
+with frozen source, disposable state and no network except container loopback.
+Never generate stress traffic against a production MQTT broker or map. Keep the
+fixture and evidence outside Git; a private state fixture must never be committed.
+
+The fixture is a saved `state.json` with a positive `saved_at`, device records and
+nonempty peer buckets. The harness shifts a disposable copy uniformly by whole
+bucket intervals; it does not rewrite the input. It also seeds explicitly
+synthetic route-history segments, rather than claiming to replay recovered RF
+packets. It verifies actual loaded and retained cardinality to avoid an empty,
+expired fixture making a benchmark artificially cheap.
+
+After building an image, an example bounded run is:
+
+```sh
+docker run --rm --network none --cpus 1 --memory 2g \
+  -e PYTHONDONTWRITEBYTECODE=1 -e TMPDIR=/evidence \
+  -v "$SOURCE:/source:ro" -v "$HARNESS:/harness:ro" \
+  -v "$STATE_FIXTURE:/fixture.json:ro" -v "$EVIDENCE:/evidence" \
+  --entrypoint python "$RUNTIME_IMAGE" \
+  /harness/benchmark-large-map.py --source /source --fixture /fixture.json \
+  --output /evidence/run-1 --duration-seconds 900 --events-per-second 28 \
+  --receivers 1 --history on --min-history-compactions 2 \
+  --min-devices 1600 --min-peer-pairs 7000 --min-peer-buckets 160000
+```
+
+`SOURCE` must be a frozen clean source copy without operator `.env` or runtime
+data; `HARNESS` contains the frozen tool; `EVIDENCE` is an existing owner-only
+directory with a fresh output name. Use an independent host timeout and record
+the image ID and source/input hashes. Choose minimum cardinalities appropriate
+to the fixture, but do not lower them merely to make an aged-out run pass.
+
+Rates are **broadcaster events per second**, not MQTT messages. The actual
+resolver, broadcaster, cleanup, persistence and loopback HTTP/WebSocket paths
+execute; raw decoding, real MQTT/RF, browser rendering and WAN/proxy delivery do
+not. Compare identical source-independent event mixes, runtime/resources and
+loaded cardinality. Keep CPU, queue/oldest age, latency, completed observations,
+physical persistence readback and any overload failures in the result. An empty
+queue alone does not prove an event whose file/send work is still pending has
+completed. Repeat controls with `--history off` and `--receivers 0`.
+
 ## UI Changes
 
 ### Browser layout regression
@@ -63,10 +106,13 @@ python tools/check-frontend-layout.py http://127.0.0.1:8080/map --output layout-
 ```
 
 The check uses production markup, scripts, and CSS with synthetic peer rows and
-mocked map-provider responses. It checks four viewport sizes across standard,
-dark, and satellite layers, saving screenshots and geometry results. It does not
-verify real provider rendering, live MQTT traffic, or physical Windows/mobile
-browsers. Keep generated evidence outside the repository when preparing commits.
+mocked map-provider responses. It checks mouse and touch-emulated contexts,
+including narrow/desktop widths, portrait/landscape and the touch breakpoint,
+across standard, dark and satellite layers. It saves screenshots and geometry,
+checks zoom visibility, panel/credit clearance and touch zoom interactions. It
+does not verify real provider rendering, live MQTT traffic, or physical
+Windows/mobile browsers. Keep generated evidence outside the repository when
+preparing commits.
 
 When adding UI controls:
 - Wire the toggle into `app.js`.

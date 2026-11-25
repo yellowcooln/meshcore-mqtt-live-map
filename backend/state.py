@@ -48,6 +48,8 @@ status_last: Deque[Dict[str, Any]] = deque(maxlen=config.DEBUG_STATUS_MAX)
 devices: Dict[str, DeviceState] = {}
 trails: Dict[str, list] = {}
 routes: Dict[str, Dict[str, Any]] = {}
+# Process-local live-route generations are not persisted across restarts.
+route_generation = 0
 heat_events: List[Dict[str, float]] = []
 route_history_segments: Deque[Dict[str, Any]] = deque()
 route_history_edges: Dict[str, Dict[str, Any]] = {}

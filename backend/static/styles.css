@@ -1428,6 +1428,12 @@
       opacity: .65;
     }
 
+    @media (max-width: 900px) and (pointer: coarse) {
+      .leaflet-control-zoom {
+        display: none;
+      }
+    }
+
     @media (max-width: 900px) {
 
       .los-panel,

@@ -1,6 +1,11 @@
 # Versions
 
 ## v1.10.0 (11-16-2026)
+- Reduced large-map processing overhead by updating only the affected peer-history buckets for each route and moving global expiry into bounded background maintenance. Peer counts remain available with Route History disabled.
+- Reduced state-snapshot copying and moved state/history file writes off the event loop with serialized ownership. Changes arriving during saves remain pending, history appends cannot race compaction, and graceful shutdown flushes processed state and retained history work.
+- Fixed expired queued observations flashing as new live routes while retaining their history and peer evidence. Added version-aware route expiry so delayed cleanup cannot remove a refreshed same-ID route; distinct observers and changed-path observations remain separate evidence.
+- Hid zoom buttons on narrow touch screens so they no longer push mobile tool panels upward. Pinch zoom and desktop/narrow-mouse zoom controls remain available.
+- Added a reproducible offline large-map benchmark and regression coverage for bounded peer-history maintenance, asynchronous persistence failure/cancellation/shutdown recovery, route expiry and generation ordering, distinct route observations, and touch-screen zoom-control layout. Benchmark completion includes actual WebSocket receipt and history-file readback rather than queue depth alone.
 - Fixed MQTT observers incorrectly switching between repeater, room server, and companion roles after receiving adverts from nodes outside the map boundary or with zero coordinates.
 - Decoded role updates now target the sender rather than the observer, including when coordinate overrides are used. Normal observer status role updates remain unchanged.
 - Thanks to [@tmcgee](https://github.com/tmcgee) for investigating and fixing this in [PR #130](https://github.com/yellowcooln/meshcore-mqtt-live-map/pull/130).
@@ -8,7 +13,7 @@
 - Updated the development HTTPX2 client from `2.16.0` to `2.16.2` through PR #136.
 - Updated the Docker runtime from Python `3.15.1-slim` to stable `3.15.2-slim` and Node `24.22.1-trixie-slim` to `24.22.3-trixie-slim` through PRs #127, #131, and #132.
 - Removed unused Turnstile visitor-token copies from localStorage and sessionStorage. Existing copies are removed on verification and map startup; cleanup tolerates blocked browser storage and leaves cookies and saved map preferences unchanged.
-- Refreshed the PWA static-asset cache so existing installations load the updated MapLibre modules, worker, stylesheet, and authentication cleanup instead of retaining previous cached assets.
+- Refreshed the PWA static-asset cache so existing installations load the updated MapLibre modules, worker, stylesheet, authentication cleanup, route-expiry fixes, and touch layout instead of retaining previous cached assets.
 - Kept Python on the stable `3.15` minor and Node on the `24` LTS line. Dependabot keeps Python patch updates enabled while future Python minor/major and Node-major runtime migrations require deliberate review.
 
 ## v1.9.9 (11-04-2026)

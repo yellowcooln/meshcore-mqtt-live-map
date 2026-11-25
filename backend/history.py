@@ -5,6 +5,7 @@ import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import state
+from persistence import FileWriter
 from boundary import within_map_boundary
 from config import (
   HISTORY_EDGE_SAMPLE_LIMIT,
@@ -29,6 +30,7 @@ for _part in ROUTE_HISTORY_PAYLOAD_TYPES.split(","):
     pass
 
 PEER_HISTORY_BUCKET_SECONDS = 300
+_history_file_writer = FileWriter()
 
 
 def _peer_history_cutoff(now: Optional[float] = None) -> float:
@@ -76,12 +78,20 @@ def _record_peer_history_segment(a_id: Any, b_id: Any, ts: float) -> bool:
   return True
 
 
-def _prune_peer_history(now: Optional[float] = None) -> bool:
+def _prune_peer_history(
+  now: Optional[float] = None,
+  pair_keys: Optional[List[str]] = None,
+) -> bool:
   if not state.peer_history_pairs:
     return False
   cutoff = _peer_history_cutoff(now)
   changed = False
-  pairs_snapshot = state.peer_history_pairs.copy()
+  pairs_snapshot = (
+    state.peer_history_pairs.copy() if pair_keys is None else {
+      key: state.peer_history_pairs[key]
+      for key in pair_keys if key in state.peer_history_pairs
+    }
+  )
   for pair_key, entry in pairs_snapshot.items():
     if not isinstance(entry, dict):
       state.peer_history_pairs.pop(pair_key, None)
@@ -119,6 +129,21 @@ def _prune_peer_history(now: Optional[float] = None) -> bool:
       changed = True
     entry["buckets"] = new_buckets
     entry["last_ts"] = max(last_ts, float(entry.get("last_ts", 0.0)))
+  return changed
+
+
+async def _prune_peer_history_background(now: Optional[float] = None) -> bool:
+  """Bound each maintenance turn; routes never sweep unrelated buckets."""
+  keys = list(state.peer_history_pairs)
+  changed = False
+  batch_size = 128
+  for offset in range(0, len(keys), batch_size):
+    batch_changed = _prune_peer_history(
+      now, pair_keys=keys[offset:offset + batch_size]
+    )
+    changed = batch_changed or changed
+    if offset + batch_size < len(keys):
+      await asyncio.sleep(0)
   return changed
 
 
@@ -277,7 +302,9 @@ def _update_history_edge_recent(
 
 
 def _record_route_history(
-  route: Dict[str, Any]
+  route: Dict[str, Any],
+  *,
+  pending_entries: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
   if ROUTE_HISTORY_ALLOWED_MODES_SET:
     route_mode = route.get("route_mode")
@@ -310,7 +337,6 @@ def _record_route_history(
 
   if not ROUTE_HISTORY_ENABLED:
     if peer_recorded:
-      _prune_peer_history(ts)
       state.state_dirty = True
     return [], []
   if not _history_payload_allowed(payload_type):
@@ -318,7 +344,6 @@ def _record_route_history(
 
   if not isinstance(points, list) or len(points) < 2:
     if peer_recorded:
-      _prune_peer_history(ts)
       state.state_dirty = True
     return [], []
 
@@ -367,14 +392,16 @@ def _record_route_history(
 
   if not new_entries:
     if peer_recorded:
-      _prune_peer_history(ts)
       state.state_dirty = True
     return [], []
 
   state.route_history_segments.extend(new_entries)
-  _append_route_history_file(new_entries)
+  if pending_entries is None:
+    if not _append_route_history_file(new_entries):
+      state.route_history_compact = True
+  else:
+    pending_entries.extend(new_entries)
   if new_entries or peer_recorded:
-    _prune_peer_history(ts)
     state.state_dirty = True
 
   updates = [
@@ -450,18 +477,41 @@ def _prune_route_history(
   return list(updated.values()), removed
 
 
-def _append_route_history_file(entries: List[Dict[str, Any]]) -> None:
+async def _record_route_history_async(
+  route: Dict[str, Any]
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+  """Keep accepted evidence on-loop; serialize live file work off-loop."""
+  entries: List[Dict[str, Any]] = []
+  result = _record_route_history(route, pending_entries=entries)
+  if entries:
+    try:
+      saved = await _history_file_writer.run(
+        _append_route_history_file, entries
+      )
+    except BaseException:
+      # Accepted segments may still be waiting for the file lock at shutdown.
+      # The final atomic compaction recovers them from canonical memory.
+      state.route_history_compact = True
+      raise
+    if not saved:
+      state.route_history_compact = True
+  return result
+
+
+def _append_route_history_file(entries: List[Dict[str, Any]]) -> bool:
   if not ROUTE_HISTORY_ENABLED or not ROUTE_HISTORY_FILE:
-    return
+    return True
   if not entries:
-    return
+    return True
   try:
     os.makedirs(os.path.dirname(ROUTE_HISTORY_FILE), exist_ok=True)
     with open(ROUTE_HISTORY_FILE, "a", encoding="utf-8") as handle:
       for entry in entries:
         handle.write(json.dumps(entry) + "\n")
+    return True
   except Exception as exc:
     print(f"[history] failed to append {ROUTE_HISTORY_FILE}: {exc}")
+    return False
 
 
 def _load_route_history() -> None:
@@ -557,6 +607,38 @@ def _load_route_history() -> None:
     state.route_history_compact = True
 
 
+def _write_route_history_snapshot(
+  path: str, entries: Tuple[Dict[str, Any], ...]
+) -> None:
+  directory = os.path.dirname(path)
+  if directory:
+    os.makedirs(directory, exist_ok=True)
+  tmp_path = f"{path}.tmp"
+  with open(tmp_path, "w", encoding="utf-8") as handle:
+    for entry in entries:
+      if isinstance(entry, dict):
+        handle.write(json.dumps(entry) + "\n")
+  os.replace(tmp_path, path)
+
+
+async def _flush_route_history() -> None:
+  if (
+    not ROUTE_HISTORY_ENABLED or not ROUTE_HISTORY_FILE or
+    not state.route_history_compact
+  ):
+    return
+  entries = tuple(state.route_history_segments)
+  state.route_history_compact = False
+  try:
+    await _history_file_writer.run(
+      _write_route_history_snapshot, ROUTE_HISTORY_FILE, entries
+    )
+    state.route_history_last_compact = time.time()
+  except BaseException:
+    state.route_history_compact = True
+    raise
+
+
 async def _route_history_saver() -> None:
   if not ROUTE_HISTORY_ENABLED or not ROUTE_HISTORY_FILE:
     return
@@ -568,15 +650,6 @@ async def _route_history_saver() -> None:
     if now - state.route_history_last_compact < ROUTE_HISTORY_COMPACT_INTERVAL:
       continue
     try:
-      os.makedirs(os.path.dirname(ROUTE_HISTORY_FILE), exist_ok=True)
-      tmp_path = f"{ROUTE_HISTORY_FILE}.tmp"
-      with open(tmp_path, "w", encoding="utf-8") as handle:
-        for entry in state.route_history_segments:
-          if not isinstance(entry, dict):
-            continue
-          handle.write(json.dumps(entry) + "\n")
-      os.replace(tmp_path, ROUTE_HISTORY_FILE)
-      state.route_history_last_compact = now
-      state.route_history_compact = False
+      await _flush_route_history()
     except Exception as exc:
       print(f"[history] failed to compact {ROUTE_HISTORY_FILE}: {exc}")

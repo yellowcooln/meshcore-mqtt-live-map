@@ -36,6 +36,7 @@ mesh-live-map-dev/
 │   ├── state.py            # Shared in-memory state (devices, routes, etc.)
 │   ├── decoder.py          # Payload parsing, MeshCore decoding
 │   ├── history.py          # Route history persistence (24h rolling window)
+│   ├── persistence.py      # Serialized, cancellation-safe off-loop file I/O
 │   ├── los.py              # Line-of-sight calculations, elevation API
 │   ├── weather.py          # Weather radar country-bounds router
 │   ├── turnstile.py        # Cloudflare Turnstile verification + tokens
@@ -160,6 +161,43 @@ Maintains a 24-hour rolling window of route segments:
 - Stored as JSONL (JSON Lines) for append-only writes
 - Compacted periodically to remove old entries
 - Aggregated into edges with counts for visualization
+
+Route ingestion updates only the affected peer buckets. Global peer expiry runs
+in the existing reaper, yielding between bounded batches rather than scanning
+all retained buckets for every incoming route. Startup pruning and read-time
+cutoff filtering remain in place. Peer buckets remain active when Route History
+is disabled.
+
+### persistence.py (File Writer Ownership)
+
+`FileWriter` serializes off-loop file operations and retains ownership until a
+running operation finishes, including during repeated cancellation. Callers
+await their writes; they do not create an unbounded queue of background save
+jobs. State snapshots own their mutable data before leaving the event loop;
+scalar peer-bucket mappings are copied without recursive per-counter copying.
+
+Live history appends and atomic compactions share a writer, so a compaction
+cannot replace a concurrently appended observation. Changes arriving during a
+state save or history compaction retain their dirty flags. Graceful shutdown
+finishes owned writes and flushes processed state and pending history compaction.
+The JSON/JSONL formats and configured retention/save intervals are unchanged.
+The in-memory incoming event queue is still not a durable journal: this does not
+promise recovery of queued, unprocessed events after a stop or crash.
+
+### Live Route Expiry
+
+Accepted observations retain their original timestamps and history/peer evidence
+even when already too old for live display. Only unexpired routes enter the live
+route dictionary and are published as live routes. Each published replacement
+has a process-local positive `generation`, which is not persisted.
+
+The reaper removes captured routes before awaiting network sends. Its
+`route_remove` frames retain `route_ids` and include `route_generations` mapping
+each removed ID to its captured generation. Updated clients ignore an obsolete
+removal targeting an older generation. This prevents a delayed cleanup from
+deleting a refreshed same-ID route; older clients retain their legacy removal
+behavior until their assets refresh. Full snapshots reset the live-route view,
+so generations are not compared across backend restarts.
 
 ### los.py (Line of Sight)
 

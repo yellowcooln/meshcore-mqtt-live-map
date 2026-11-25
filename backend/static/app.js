@@ -6555,9 +6555,13 @@ function clearRouteDisplay() {
   stopArcadeLoop();
 }
 
-function removeRoutes(ids) {
+function removeRoutes(ids, generations) {
   ids.forEach(id => {
     const entry = routeLines.get(id);
+    const generation = generations?.[id];
+    if (Number.isInteger(generation) && generation > 0 &&
+        [routeCache.get(id)?.generation, entry?.generation].some(current =>
+          Number.isInteger(current) && current > generation)) return;
     if (entry) {
       if (entry.timeout) clearTimeout(entry.timeout);
       removeArcadeMarker(id);
@@ -7216,7 +7220,13 @@ function handleRouteClick(routeId, ev) {
 
 function upsertRoute(r, skipHeat = false) {
   if (!r || !Array.isArray(r.points) || r.points.length < 2) return;
+  const expiresAtMs = r.expires_at == null ? NaN : Number(r.expires_at) * 1000;
+  if (Number.isFinite(expiresAtMs) && expiresAtMs <= getServerNowMs()) return;
   const id = r.id || `route-${Date.now()}-${Math.random()}`;
+  // Generations are comparable only within the state reset by each snapshot.
+  if (Number.isInteger(r.generation) && r.generation > 0 &&
+      [routeCache.get(id)?.generation, routeLines.get(id)?.generation].some(current =>
+        Number.isInteger(current) && current > r.generation)) return;
   routeCache.set(id, {
     ...r,
     id,
@@ -7245,6 +7255,7 @@ function upsertRoute(r, skipHeat = false) {
     entry.line.setStyle(style);
   }
   entry.meta = routeMeta;
+  entry.generation = r.generation;
   entry.routePoints = points;
   entry.payloadType = payloadType;
   entry.routeMode = routeMode;
@@ -7262,8 +7273,9 @@ function upsertRoute(r, skipHeat = false) {
   }
 
   if (entry.timeout) clearTimeout(entry.timeout);
-  if (r.expires_at) {
-    const ms = Math.max(1000, (r.expires_at * 1000) - getServerNowMs());
+  entry.timeout = null;
+  if (Number.isFinite(expiresAtMs)) {
+    const ms = Math.max(0, expiresAtMs - getServerNowMs());
     entry.timeout = setTimeout(() => removeRoutes([id]), ms);
   }
 
@@ -7473,7 +7485,7 @@ function handleRealtimeMessage(msg) {
   }
 
   if (msg.type === "route_remove") {
-    removeRoutes(msg.route_ids || []);
+    removeRoutes(msg.route_ids || [], msg.route_generations);
     return;
   }
 

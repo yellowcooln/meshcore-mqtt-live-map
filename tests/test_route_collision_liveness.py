@@ -2,7 +2,7 @@
 import ast
 import asyncio
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import pytest
 
@@ -63,7 +63,8 @@ def chain(monkeypatch):
   def noop(*args):
     pass
 
-  ns = dict(List=List, Optional=Optional, state=state, time=Clock, asyncio=OneTick,
+  ns = dict(Any=Any, Dict=Dict, List=List, Optional=Optional,
+            state=state, time=Clock, asyncio=OneTick,
             devices=state.devices, seen_devices=state.seen_devices,
             neighbor_edges=state.neighbor_edges, trails={}, routes={}, clients=set(),
             mqtt_seen={}, last_seen_in_advert={}, first_seen_devices={},
@@ -76,16 +77,18 @@ def chain(monkeypatch):
             _coords_are_zero=decoder._coords_are_zero,
             _prune_route_history=lambda: ([], []), _prune_neighbors=noop,
             _mqtt_presence_summary=lambda now: {}, _prune_peer_history=lambda now: False,
+            _prune_peer_history_background=history._prune_peer_history_background,
             _route_points_from_hashes=decoder._route_points_from_hashes,
             _route_points_from_device_ids=decoder._route_points_from_device_ids,
             _route_hidden_by_blocked_name=lambda route: False,
             MAP_RADIUS_KM=0, ROUTE_TTL_SECONDS=120, _append_heat_points=noop,
             _record_route_history=history._record_route_history,
+            _record_route_history_async=history._record_route_history_async,
             _history_edge_payload=lambda edge: edge,
             _route_payload=lambda route: route, broadcaster_stats={})
   source = Path(decoder.__file__).with_name('app.py')
   names = {'_touch_neighbor', '_record_neighbors', '_update_path_timestamps',
-           'broadcaster', 'reaper'}
+           '_remove_route_payload', 'broadcaster', 'reaper'}
   bodies = [node for node in ast.parse(source.read_text()).body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
             and node.name in names]
